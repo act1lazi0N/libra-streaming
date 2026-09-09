@@ -1,0 +1,85 @@
+# Local Codex configuration and contributor instructions at any depth
+.codex/
+AGENTS.md
+
+# Java / Maven generated files (keep Maven Wrapper files tracked)
+target/
+*.class
+.flattened-pom.xml
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+
+# Next.js / Node.js dependencies, builds, and caches
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+.cache/
+.pnpm-store/
+*.tsbuildinfo
+next-env.d.ts
+.eslintcache
+.stylelintcache
+
+# Test reports and coverage
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+
+# Local environment and secrets (keep safe templates tracked)
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.env.*.example
+!.env.*.sample
+!.env.*.template
+.secrets/
+*.local.properties
+
+# Runtime logs and JVM crash / heap dumps
+logs/
+*.log
+*.hprof
+hs_err_pid*
+replay_pid*
+
+# Local infrastructure data and generated media; scope to runtime folders
+# Keep source modules such as services/media and test video fixtures tracked.
+/data/
+/uploads/
+/transcoded/
+/hls/
+/tmp/
+/infra/data/
+/infra/volumes/
+/infra/secrets/
+
+# IDE and editor local state
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+*.swp
+*.swo
+*~
+
+# Operating system metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
