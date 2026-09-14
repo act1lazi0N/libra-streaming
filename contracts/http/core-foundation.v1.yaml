@@ -1,0 +1,57 @@
+openapi: 3.1.0
+info:
+  title: LIBRA Core Foundation
+  version: 1.0.0
+  description: >-
+    Foundation health and shared errors. Implemented identity endpoints are
+    documented in core-identity.v1.json. Nginx strips /api/core.
+servers:
+  - url: http://localhost:8081
+  - url: http://localhost:8080/api/core
+paths:
+  /actuator/health:
+    get:
+      operationId: coreHealth
+      summary: Public health without dependency details
+      responses:
+        '200':
+          description: Healthy
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: UP }
+        '503':
+          description: Unhealthy actuator response (not an API Problem)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string }
+components:
+  headers:
+    CorrelationId:
+      description: Canonical UUID; invalid incoming values are replaced.
+      schema: { type: string, format: uuid }
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, detail, code, correlationId]
+      properties:
+        type: { type: string, format: uri, const: 'about:blank' }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail: { type: string }
+        instance: { type: string, format: uri-reference }
+        code:
+          type: string
+          enum: [INVALID_REQUEST, AUTHENTICATION_REQUIRED, ACCESS_DENIED, NOT_FOUND, METHOD_NOT_ALLOWED, CONFLICT, UNSUPPORTED_MEDIA_TYPE, RATE_LIMITED, INTERNAL_ERROR, REQUEST_REJECTED, INVALID_CREDENTIALS, INVALID_SESSION, INVALID_OR_EXPIRED_TOKEN, PASSWORD_POLICY_VIOLATION]
+        correlationId: { type: string, format: uuid }
+      additionalProperties: true

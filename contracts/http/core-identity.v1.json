@@ -1,0 +1,775 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LIBRA Core Identity",
+    "version": "1.0.0",
+    "description": "Milestone 2 backend identity contract. Nginx strips /api/core. Cookie authentication only; tokens are never returned in JSON. All unsafe methods require both the CSRF cookie and the masked token from GET /v1/auth/csrf in X-CSRF-TOKEN. Obtain a new token after cookies are issued or cleared. Production cookies use __Host- names, Secure, HttpOnly, SameSite=Lax, Path=/ and no Domain; explicit local HTTP development omits __Host- and Secure. Login and refresh lifetimes are ten-minute access and an absolute thirty-day session. Unknown request fields are rejected."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8081"
+    },
+    {
+      "url": "http://localhost:8080/api/core"
+    }
+  ],
+  "paths": {
+    "/v1/auth/csrf": {
+      "get": {
+        "operationId": "identityCsrf",
+        "summary": "Obtain a masked CSRF token and its cookie",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Send token in the returned headerName on unsafe requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsrfView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/register": {
+      "post": {
+        "operationId": "identityRegister",
+        "summary": "Register a USER and queue email verification",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Register"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Generic acceptance, including an existing email.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "identityLogin",
+        "summary": "Log in, including an active unverified account",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication cookies issued; CSRF cookie cleared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "operationId": "identityRefresh",
+        "summary": "Rotate the refresh token",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": [],
+            "RefreshCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cookies replaced; CSRF cookie cleared. Reuse of a consumed token revokes the session family.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "identityLogout",
+        "summary": "Revoke the refresh cookie session if present",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cookies cleared, including when the refresh cookie is absent or invalid."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/logout-all": {
+      "post": {
+        "operationId": "identityLogoutAll",
+        "summary": "Revoke all of the current account's sessions",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": [],
+            "AccessCookie": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "All sessions revoked and cookies cleared."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/forgot-password": {
+      "post": {
+        "operationId": "identityForgotPassword",
+        "summary": "Request a password reset link",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Generic acceptance; does not disclose account existence or prove email delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/resend-verification": {
+      "post": {
+        "operationId": "identityResendVerification",
+        "summary": "Request a replacement email verification link",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Generic acceptance; does not disclose account existence or prove email delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/verify-email": {
+      "post": {
+        "operationId": "identityVerifyEmail",
+        "summary": "Consume a one-use email verification token",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Email verified for an active account."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/reset-password": {
+      "post": {
+        "operationId": "identityResetPassword",
+        "summary": "Consume a reset token and revoke all sessions",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPassword"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Password replaced and cookies cleared. Does not verify email or reactivate a suspended account."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/change-password": {
+      "post": {
+        "operationId": "identityChangePassword",
+        "summary": "Check the current password, replace it, and revoke all sessions",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": [],
+            "AccessCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePassword"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Password replaced and cookies cleared."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "identityMe",
+        "summary": "Read the current account",
+        "security": [
+          {
+            "AccessCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current account; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/me/sessions": {
+      "get": {
+        "operationId": "identitySessions",
+        "summary": "List owned, active, unexpired sessions",
+        "security": [
+          {
+            "AccessCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ordered by createdAt descending, then id; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionView"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0,
+              "maximum": 10000
+            }
+          }
+        ]
+      }
+    },
+    "/v1/me/sessions/{id}": {
+      "delete": {
+        "operationId": "identityRevokeSession",
+        "summary": "Revoke an owned session",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": [],
+            "AccessCookie": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Session revoked; revoking the current session clears cookies. A foreign session returns 404."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/users/{id}/suspension": {
+      "post": {
+        "operationId": "identitySuspendUser",
+        "summary": "ADMIN only: suspend another account and revoke its sessions",
+        "security": [
+          {
+            "CsrfHeader": [],
+            "CsrfCookie": [],
+            "AccessCookie": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Account suspended. Self-suspension is forbidden; missing target returns 404."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "description": "ADMIN authority is checked against current database state, not JWT role claims."
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "AccessCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-LIBRA_ACCESS",
+        "description": "Local HTTP name: LIBRA_ACCESS. Live account and session checks remain authoritative."
+      },
+      "RefreshCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-LIBRA_REFRESH",
+        "description": "Local HTTP name: LIBRA_REFRESH. Serialize refresh calls: token reuse revokes the family."
+      },
+      "CsrfCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-LIBRA_CSRF",
+        "description": "Local HTTP name: LIBRA_CSRF. HttpOnly cookie set by the CSRF endpoint."
+      },
+      "CsrfHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-TOKEN",
+        "description": "Masked token from the CSRF response body, not the raw cookie."
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Sanitized API error. 400: invalid input/token/password policy; 401: authentication or session failure; 403: access or CSRF denial; 404: missing or foreign resource; 429: rate limit. Other foundation errors may apply.",
+        "headers": {
+          "X-Correlation-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "Retry-After": {
+            "description": "Present for 429: remaining bucket window in seconds.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "./core-foundation.v1.yaml#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "CsrfView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "headerName",
+          "token"
+        ],
+        "properties": {
+          "headerName": {
+            "type": "string",
+            "const": "X-CSRF-TOKEN"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "Accepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ACCEPTED"
+          }
+        }
+      },
+      "SessionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accessExpiresAt",
+          "sessionExpiresAt"
+        ],
+        "properties": {
+          "accessExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sessionExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Register": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "displayName",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "Must not be blank; stripped before persistence."
+          },
+          "password": {
+            "type": "string",
+            "writeOnly": true,
+            "maxLength": 256,
+            "description": "Request validation allows at most 256 UTF-16 code units. New passwords additionally require 12..128 Unicode code points and at most 512 UTF-8 bytes."
+          }
+        }
+      },
+      "Login": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 256,
+            "writeOnly": true
+          }
+        }
+      },
+      "EmailRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          }
+        }
+      },
+      "TokenRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "writeOnly": true,
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        }
+      },
+      "ResetPassword": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token",
+          "newPassword"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "writeOnly": true,
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "newPassword": {
+            "type": "string",
+            "writeOnly": true,
+            "maxLength": 256,
+            "description": "Request validation allows at most 256 UTF-16 code units. New passwords additionally require 12..128 Unicode code points and at most 512 UTF-8 bytes."
+          }
+        }
+      },
+      "ChangePassword": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "maxLength": 256,
+            "writeOnly": true
+          },
+          "newPassword": {
+            "type": "string",
+            "writeOnly": true,
+            "maxLength": 256,
+            "description": "Request validation allows at most 256 UTF-16 code units. New passwords additionally require 12..128 Unicode code points and at most 512 UTF-8 bytes."
+          }
+        }
+      },
+      "AccountView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "email",
+          "displayName",
+          "role",
+          "emailVerified"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "ADMIN"
+            ]
+          },
+          "emailVerified": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "createdAt",
+          "expiresAt",
+          "current"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

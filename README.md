@@ -24,8 +24,15 @@ The credentials in `.env.example` and `infra/compose.yaml` are disposable local-
 ## Start locally
 
 ```powershell
-Copy-Item .env.example .env
-docker compose -f infra/compose.yaml up -d
+if (-not (Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }
+```
+
+Follow [Core identity setup](docs/core-identity.md#local-startup) to populate the two
+required keys and load `CORE_*` configuration into the terminal before starting Core.
+Spring does not automatically read this `.env` when launched with Maven.
+
+```powershell
+docker compose --env-file .env -f infra/compose.yaml up -d
 .\mvnw.cmd clean verify
 .\mvnw.cmd -pl services/core spring-boot:run
 ```
@@ -37,7 +44,7 @@ Set-Location web
 pnpm.cmd dev
 ```
 
-Open `http://localhost:3000`. Infrastructure-only Compose starts PostgreSQL on `5432`, Kafka on `9092`, and SeaweedFS S3 on `8333`. Use `docker compose -f infra/compose.yaml --profile full up --build` when application images are needed.
+Open `http://localhost:3000`. Infrastructure-only Compose starts PostgreSQL on `5432`, Kafka on `9092`, SeaweedFS S3 on `8333`, and Mailpit SMTP/UI on `1025`/`8025`. Kafka advertises `localhost:9092` to host clients and `kafka:9092` to Compose clients. Use `docker compose --env-file .env -f infra/compose.yaml --profile full up --build` when application images are needed.
 
 ## Verification
 
@@ -45,7 +52,13 @@ Open `http://localhost:3000`. Infrastructure-only Compose starts PostgreSQL on `
 .\mvnw.cmd clean verify
 pnpm.cmd --dir web lint
 pnpm.cmd --dir web build
-docker compose -f infra/compose.yaml config
+docker compose --env-file .env -f infra/compose.yaml config --quiet
 ```
 
-The first Maven Wrapper run downloads Maven. Backend tests use H2 only for context wiring; PostgreSQL/Kafka/SeaweedFS integration tests will be added with their first features.
+The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. SeaweedFS/FFmpeg/HLS integration remains later work.
+
+See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Durable outbox append is implemented; background publication and business features follow in later milestones.
+
+See [Core identity](docs/core-identity.md) for Milestone 2 authentication, CSRF/cookie
+flows, password recovery, administrator bootstrap, mail operations, and the versioned
+OpenAPI contract. Frontend identity pages remain future work.

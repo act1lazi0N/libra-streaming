@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:libra:core:event-envelope:v1",
+  "title": "Core event envelope V1",
+  "type": "object",
+  "required": ["eventId", "eventType", "schemaVersion", "aggregateId", "aggregateVersion", "occurredAt", "correlationId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9.]{0,99}$" },
+    "schemaVersion": { "const": 1 },
+    "aggregateId": { "type": "string", "format": "uuid" },
+    "aggregateVersion": { "type": "integer", "minimum": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "format": "uuid" },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": true
+}
