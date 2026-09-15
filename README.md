@@ -57,8 +57,13 @@ docker compose --env-file .env -f infra/compose.yaml config --quiet
 
 The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. SeaweedFS/FFmpeg/HLS integration remains later work.
 
-See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Durable outbox append is implemented; background publication and business features follow in later milestones.
+See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Durable outbox append is implemented; its background publisher follows in a later milestone.
 
 See [Core identity](docs/core-identity.md) for Milestone 2 authentication, CSRF/cookie
 flows, password recovery, administrator bootstrap, mail operations, and the versioned
 OpenAPI contract. Frontend identity pages remain future work.
+
+See [Core profiles and catalog](docs/core-catalog-profiles.md) for Milestone 3 profile
+ownership, catalog revisions/publication, search, and the Kafka Media projection
+contract. Premium, playback, watchlist/community and downstream implementations
+remain later milestones.

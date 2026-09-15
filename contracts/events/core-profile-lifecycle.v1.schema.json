@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "core-event-envelope.v1.schema.json"
+    },
+    {
+      "properties": {
+        "eventType": {
+          "enum": [
+            "ProfileCreated",
+            "ProfileUpdated",
+            "ProfileDeleted"
+          ]
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "accountId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "profileId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "accountId",
+            "profileId"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -18,6 +18,15 @@ spring:
     validate-migration-naming: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      max-poll-records: 50
+      properties:
+        isolation.level: read_committed
+        max.partition.fetch.bytes: 524288
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -55,6 +64,8 @@ management:
       show-details: never
 
 libra:
+  catalog:
+    media-listener-enabled: ${CORE_MEDIA_LISTENER_ENABLED:true}
   identity:
     jwt-key: ${CORE_JWT_KEY:}
     mail-key: ${CORE_MAIL_ENCRYPTION_KEY:}

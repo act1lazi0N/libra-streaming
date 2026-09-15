@@ -11,6 +11,7 @@ public final class TestIdentityProperties {
     private TestIdentityProperties() {}
 
     public static void register(DynamicPropertyRegistry registry) {
+        registry.add("libra.catalog.media-listener-enabled", () -> false);
         registry.add("libra.identity.jwt-key", () -> JWT);
         registry.add("libra.identity.mail-key", () -> MAIL);
         registry.add("libra.identity.local-development", () -> true);

@@ -25,11 +25,14 @@ public class IdentityAccountService {
     private final PasswordEncoder passwords;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final com.libra.streaming.core.profiles.ProfileService profiles;
 
     public IdentityAccountService(JdbcTemplate jdbc, IdentityStore accounts, IdentitySessionService sessions,
-            IdentitySecrets secrets, IdentityProperties properties, PasswordEncoder passwords, ObjectMapper mapper, Clock clock) {
+            IdentitySecrets secrets, IdentityProperties properties, PasswordEncoder passwords, ObjectMapper mapper, Clock clock,
+            com.libra.streaming.core.profiles.ProfileService profiles) {
         this.jdbc = jdbc; this.accounts = accounts; this.sessions = sessions; this.secrets = secrets;
         this.properties = properties; this.passwords = passwords; this.mapper = mapper; this.clock = clock;
+        this.profiles = profiles;
     }
 
     @Transactional
@@ -42,6 +45,7 @@ public class IdentityAccountService {
                 VALUES (?, ?, ?, ?, 'USER') ON CONFLICT (email) DO NOTHING
                 """, id, normalizeEmail(email), displayName.strip(), encoded);
         if (inserted == 1) {
+            profiles.initialize(id, displayName);
             queueToken(accounts.lock(id), "VERIFY");
             accounts.audit(id, id, "REGISTERED");
         }
@@ -120,6 +124,7 @@ public class IdentityAccountService {
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO identity_accounts (id, email, display_name, password_hash, role) VALUES (?, ?, ?, ?, 'ADMIN')",
                 id, email, "Administrator", passwords.encode(properties.bootstrapPassword()));
+        profiles.initialize(id, "Administrator");
         queueToken(accounts.lock(id), "VERIFY");
         jdbc.update("INSERT INTO identity_bootstrap (account_id) VALUES (?)", id);
         accounts.audit(id, id, "ADMIN_BOOTSTRAPPED");

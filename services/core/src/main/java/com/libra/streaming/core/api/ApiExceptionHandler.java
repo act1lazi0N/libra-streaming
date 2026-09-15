@@ -44,6 +44,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(problems.create(HttpStatus.INTERNAL_SERVER_ERROR, request));
     }
 
+    @ExceptionHandler(DomainException.class)
+    ResponseEntity<Object> domain(DomainException exception, HttpServletRequest request) {
+        var problem = problems.create(exception.status(), request);
+        problem.setProperty("code", exception.code());
+        return ResponseEntity.status(exception.status()).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .cacheControl(org.springframework.http.CacheControl.noStore()).body(problem);
+    }
+
     @ExceptionHandler(com.libra.streaming.core.identity.IdentityException.class)
     ResponseEntity<Object> identity(com.libra.streaming.core.identity.IdentityException exception,
             HttpServletRequest request) {

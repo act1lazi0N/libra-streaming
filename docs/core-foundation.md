@@ -6,6 +6,8 @@ It does not implement identity, catalog, subscriptions, playback, or Media/Analy
 This document records the Milestone 1 baseline. The current tree also includes
 [Milestone 2 identity](core-identity.md), its required keys, cookie/CSRF workflow,
 and encrypted mail queue. Follow that setup before starting the current Core service.
+The current tree also includes [Milestone 3 profiles/catalog](core-catalog-profiles.md)
+and the versioned Media readiness consumer.
 
 ## Runtime and tests
 

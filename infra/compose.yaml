@@ -87,6 +87,7 @@ services:
       CORE_PUBLIC_BASE_URL: ${CORE_PUBLIC_BASE_URL:-https://localhost}
       CORE_BOOTSTRAP_ADMIN_EMAIL: ${CORE_BOOTSTRAP_ADMIN_EMAIL:-}
       CORE_BOOTSTRAP_ADMIN_PASSWORD: ${CORE_BOOTSTRAP_ADMIN_PASSWORD:-}
+      CORE_MEDIA_LISTENER_ENABLED: ${CORE_MEDIA_LISTENER_ENABLED:-true}
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }

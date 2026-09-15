@@ -18,7 +18,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class CorrelationIdFilter extends OncePerRequestFilter {
     public static final String HEADER = "X-Correlation-ID";
-    public static final String ATTRIBUTE = CorrelationIdFilter.class.getName() + ".id";
+    public static final String ATTRIBUTE = "com.libra.streaming.core.api.CorrelationIdFilter.id";
     private static final Pattern UUID_PATTERN = Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
