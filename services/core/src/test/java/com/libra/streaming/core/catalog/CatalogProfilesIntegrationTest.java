@@ -92,7 +92,7 @@ class CatalogProfilesIntegrationTest {
                 id, id + "@example.test");
         var upgrade = org.flywaydb.core.Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .schemas("upgrade_test").defaultSchema("upgrade_test").load();
+                .schemas("upgrade_test").defaultSchema("upgrade_test").target("3").load();
         assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(upgrade.migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForObject("SELECT name FROM upgrade_test.profiles WHERE account_id = ? AND is_default", String.class, id)).isEqualTo("Existing Viewer");

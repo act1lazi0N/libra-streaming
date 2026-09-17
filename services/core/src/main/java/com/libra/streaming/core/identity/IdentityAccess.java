@@ -18,7 +18,7 @@ public class IdentityAccess {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void lockCurrent(IdentityPrincipal principal, boolean administrator) {
+    public IdentityPrincipal lockCurrent(IdentityPrincipal principal, boolean administrator) {
         if (principal == null) { throw IdentityException.unauthenticated(); }
         accounts.lock(principal.accountId());
         var current = accounts.principal(principal.accountId(), principal.sessionId(), clock.instant())
@@ -26,5 +26,6 @@ public class IdentityAccess {
         if (administrator && !current.role().equals("ADMIN")) {
             throw new IdentityException(HttpStatus.FORBIDDEN, "ACCESS_DENIED");
         }
+        return current;
     }
 }

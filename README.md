@@ -65,5 +65,11 @@ OpenAPI contract. Frontend identity pages remain future work.
 
 See [Core profiles and catalog](docs/core-catalog-profiles.md) for Milestone 3 profile
 ownership, catalog revisions/publication, search, and the Kafka Media projection
-contract. Premium, playback, watchlist/community and downstream implementations
+contract. Playback, watchlist/community and downstream implementations
 remain later milestones.
+
+See [Core simulated Premium](docs/core-subscriptions.md) and the
+[entitlement matrix](docs/core-entitlements.md) for Milestone 4: account-wide
+simulated activation, purchase history, safe retries and concurrent extensions,
+and centralized eligibility checks. Playback sessions and Media tickets remain
+Milestone 5.

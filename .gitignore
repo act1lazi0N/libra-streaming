@@ -1,6 +1,8 @@
 # Local Codex configuration and contributor instructions at any depth
 .codex/
+.claude/
 AGENTS.md
+CLAUDE.md
 
 # Java / Maven generated files (keep Maven Wrapper files tracked)
 target/
