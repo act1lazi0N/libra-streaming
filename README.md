@@ -27,8 +27,9 @@ The credentials in `.env.example` and `infra/compose.yaml` are disposable local-
 if (-not (Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }
 ```
 
-Follow [Core identity setup](docs/core-identity.md#local-startup) to populate the two
-required keys and load `CORE_*` configuration into the terminal before starting Core.
+Follow [Core identity setup](docs/core-identity.md#local-startup) and
+[playback key setup](docs/core-playback.md#configuration) to populate the required
+keys and load `CORE_*` configuration into the terminal before starting Core.
 Spring does not automatically read this `.env` when launched with Maven.
 
 ```powershell
@@ -65,11 +66,15 @@ OpenAPI contract. Frontend identity pages remain future work.
 
 See [Core profiles and catalog](docs/core-catalog-profiles.md) for Milestone 3 profile
 ownership, catalog revisions/publication, search, and the Kafka Media projection
-contract. Playback, watchlist/community and downstream implementations
+contract. Watchlist/community and downstream implementations
 remain later milestones.
 
 See [Core simulated Premium](docs/core-subscriptions.md) and the
 [entitlement matrix](docs/core-entitlements.md) for Milestone 4: account-wide
 simulated activation, purchase history, safe retries and concurrent extensions,
-and centralized eligibility checks. Playback sessions and Media tickets remain
-Milestone 5.
+and centralized eligibility checks.
+
+See [Core playback and history](docs/core-playback.md) for Milestone 5: session
+admission/renewal, signed Media ticket contracts, sequence-safe progress, resume,
+continue watching, next episode and transactional viewing outbox. Actual Media HLS
+delivery, the player and Analytics consumption remain separate work.

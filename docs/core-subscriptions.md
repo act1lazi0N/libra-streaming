@@ -6,8 +6,8 @@ and no automatic renewal runs. Every status and receipt includes `simulated: tru
 
 The [centralized entitlement matrix](core-entitlements.md) combines current identity,
 owned profile, effective publication, exact READY asset, and Premium expiry.
-Subscription status alone does not authorize playback. Playback sessions and Media
-tickets remain Milestone 5.
+Subscription status alone does not authorize playback. See [Milestone 5 playback](core-playback.md)
+for session admission, renewal and the signed Media ticket contract.
 
 ## HTTP contract
 

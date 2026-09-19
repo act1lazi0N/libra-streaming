@@ -64,6 +64,10 @@ management:
       show-details: never
 
 libra:
+  playback:
+    private-key: ${CORE_PLAYBACK_PRIVATE_KEY:}
+    public-key: ${CORE_PLAYBACK_PUBLIC_KEY:}
+    key-id: ${CORE_PLAYBACK_KEY_ID:}
   catalog:
     media-listener-enabled: ${CORE_MEDIA_LISTENER_ENABLED:true}
   identity:

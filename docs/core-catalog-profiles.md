@@ -23,9 +23,9 @@ administrators do not gain playback entitlement from that role.
   without display names, email or credentials. Aggregate version is profile version;
   a deleted profile emits its final version plus one.
 
-Watchlists, history, playback sessions and Analytics personalization do not exist
-in this milestone. Their later migrations/services must attach to profile ownership,
-remove personalization and terminate sessions on deletion. Analytics must consume
+Milestone 5 adds [history and playback sessions](core-playback.md), with cascading
+removal when a profile is deleted. Watchlists and Analytics personalization remain
+later work and must preserve the same ownership/lifecycle rules. Analytics must consume
 `ProfileDeleted` as a tombstone and reject older lifecycle events. The current
 outbox appends durably; its background publisher remains later work.
 
@@ -42,7 +42,8 @@ references and `FREE`/`PREMIUM` access tier. Image references are identifiers, n
 URLs or private media object paths; Core does not fetch them. Clients must render
 text as text. Movie/episode tier belongs to that playable unit, independently of
 container metadata. Profile defaults and catalog metadata accept unverified users
-where the API is public or owned; playback/Premium verification gates are later work.
+where the API is public or owned; playback/Premium require verified email through
+the [central entitlement policy](core-entitlements.md).
 
 Admin state includes both draft and published revisions, plus candidate and active
 bindings. `expectedVersion` is the catalog control version, not the metadata

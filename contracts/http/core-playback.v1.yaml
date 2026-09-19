@@ -1,0 +1,280 @@
+openapi: 3.1.0
+info:
+  title: LIBRA Core playback and history
+  version: 1.0.0
+  description: >-
+    Core admission, renewal, sequence-safe progress and profile history. Media HLS
+    delivery is a separate implementation. All responses use no-store. Mutations
+    require the identity cookie plus the X-CSRF-TOKEN from /v1/auth/csrf and its
+    matching CSRF cookie. See docs/core-playback.md for the Media ticket contract.
+servers:
+  - url: http://localhost:8081
+  - url: http://localhost:8080/api/core
+security:
+  - cookieAuth: []
+paths:
+  /v1/playback/jwks:
+    get:
+      operationId: playbackPublicKeys
+      security: []
+      summary: Public verification keys only; pin this trusted endpoint in Media
+      responses:
+        '200':
+          description: RSA public JWK set; never private key material
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items: { type: object }
+  /v1/playback/sessions:
+    post:
+      operationId: admitPlayback
+      summary: Admit a verified viewer using current publication and entitlement
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [profileId, contentId]
+              properties:
+                profileId: { type: string, format: uuid }
+                contentId: { type: string, format: uuid }
+      responses:
+        '201': { $ref: '#/components/responses/Session' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/playback/sessions/{id}/renew:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      operationId: renewPlayback
+      summary: Recheck rights and renew the same exact asset binding before expiry
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { $ref: '#/components/responses/Session' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/playback/sessions/{id}/progress:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      operationId: playbackProgress
+      summary: Accept a monotonically increasing progress sequence
+      description: >-
+        State is the state after the observation. Send on play/pause/buffer/seek/end
+        and every 15 seconds while playing. Report playedMs since the last accepted
+        observation, excluding seek jumps and paused/buffering time. At most 30 seconds
+        are accepted, bounded by server elapsed time and the previous PLAYING state.
+        Server gaps over 30 seconds receive zero watched time. SEEKING receives zero.
+        Duplicate/stale requests return current state with accepted=false and write nothing.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      requestBody: { $ref: '#/components/requestBodies/Progress' }
+      responses:
+        '200': { $ref: '#/components/responses/Progress' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/playback/sessions/{id}/end:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      operationId: endPlayback
+      summary: Submit final progress with state ENDED and expire this browser cookie
+      description: Uses the same sequence rules; state must be ENDED. Missing final observations are not fabricated.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      requestBody: { $ref: '#/components/requestBodies/Progress' }
+      responses:
+        '200': { $ref: '#/components/responses/Progress' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/profiles/{profileId}/history:
+    parameters:
+      - $ref: '#/components/parameters/ProfileId'
+    get:
+      operationId: profileHistory
+      summary: List owned profile history with currently public titles
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { $ref: '#/components/responses/History' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      operationId: clearProfileHistory
+      summary: End every profile session and remove shared history atomically
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '204': { description: Cleared; late progress cannot recreate history }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/profiles/{profileId}/history/{contentId}:
+    parameters:
+      - $ref: '#/components/parameters/ProfileId'
+      - $ref: '#/components/parameters/ContentId'
+    delete:
+      operationId: removeProfileHistory
+      summary: End all sessions for this profile and content, and remove its history
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '204': { description: Idempotently removed }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/profiles/{profileId}/continue-watching:
+    parameters:
+      - $ref: '#/components/parameters/ProfileId'
+    get:
+      operationId: continueWatching
+      summary: Owned public history with position above zero and completion false
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { $ref: '#/components/responses/History' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/profiles/{profileId}/next-episode/{contentId}:
+    parameters:
+      - $ref: '#/components/parameters/ProfileId'
+      - $ref: '#/components/parameters/ContentId'
+    get:
+      operationId: nextEligibleEpisode
+      summary: Next currently eligible episode ordered across seasons of the same series
+      description: Requires current content eligibility. Skips unpublished, unavailable and unentitled episodes. Admission must recheck rights.
+      responses:
+        '200':
+          description: No candidate (including a movie) returns contentId null
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [contentId]
+                properties:
+                  contentId: { type: [string, 'null'], format: uuid }
+        default: { $ref: '#/components/responses/Problem' }
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-LIBRA_ACCESS
+      description: Local loopback uses LIBRA_ACCESS. Media tickets are never Core identity credentials.
+  parameters:
+    Csrf:
+      name: X-CSRF-TOKEN
+      in: header
+      required: true
+      schema: { type: string }
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProfileId:
+      name: profileId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ContentId:
+      name: contentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+  requestBodies:
+    Progress:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Progress' }
+  responses:
+    Session:
+      description: Session with cookie ticket; no reusable credential in body or URL
+      headers:
+        Set-Cookie:
+          description: __Secure-LIBRA_PLAYBACK; HttpOnly; Secure; SameSite=Lax; Path=/api/media/v1/streams/{sessionId}/. Local loopback uses LIBRA_PLAYBACK without Secure.
+          schema: { type: string }
+        Cache-Control:
+          schema: { type: string, const: no-store }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Session' }
+    Progress:
+      description: Accepted or duplicate/stale observation. ENDED expires the session cookie.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ProgressResult' }
+    History:
+      description: Latest-opened session controls resume. Sorted by updatedAt descending then contentId.
+      content:
+        application/json:
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/HistoryItem' }
+    Problem:
+      description: >-
+        400 INVALID_REQUEST; 401 AUTHENTICATION_REQUIRED/INVALID_CREDENTIALS;
+        403 ACCESS_DENIED/EMAIL_VERIFICATION_REQUIRED/PREMIUM_REQUIRED;
+        404 NOT_FOUND (including foreign profile, auth session or hidden content);
+        409 NOT_PLAYABLE_CONTENT/MEDIA_NOT_READY/MEDIA_BINDING_CHANGED/PLAYBACK_EXPIRED/
+        PLAYBACK_ENDED/PLAYBACK_EXPIRING. New admission is required for expired,
+        ended or replaced sessions. No side effects on denial.
+      content:
+        application/problem+json:
+          schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+  schemas:
+    Session:
+      type: object
+      additionalProperties: false
+      required: [sessionId, profileId, contentId, durationMs, resumePositionMs, expiresAt, manifestPath, heartbeatSeconds]
+      properties:
+        sessionId: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        contentId: { type: string, format: uuid }
+        durationMs: { type: integer, minimum: 1000, maximum: 604800000 }
+        resumePositionMs: { type: integer, minimum: 0, maximum: 604800000 }
+        expiresAt: { type: string, format: date-time }
+        manifestPath: { type: string, pattern: '^/api/media/v1/streams/[0-9a-f-]{36}/master\.m3u8$' }
+        heartbeatSeconds: { type: integer, const: 15 }
+    Progress:
+      type: object
+      additionalProperties: false
+      required: [sequence, positionMs, playedMs, state]
+      properties:
+        sequence: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        positionMs: { type: integer, minimum: 0, maximum: 604800000 }
+        playedMs: { type: integer, minimum: 0, maximum: 30000 }
+        state: { type: string, enum: [PLAYING, PAUSED, BUFFERING, SEEKING, ENDED] }
+    ProgressResult:
+      type: object
+      additionalProperties: false
+      required: [accepted, sequence, positionMs, watchedMs, qualified, state]
+      properties:
+        accepted: { type: boolean }
+        sequence: { type: integer, minimum: 0 }
+        positionMs: { type: integer, minimum: 0 }
+        watchedMs: { type: integer, minimum: 0 }
+        qualified: { type: boolean }
+        state: { type: string, enum: [PLAYING, PAUSED, BUFFERING, SEEKING, ENDED] }
+    HistoryItem:
+      type: object
+      additionalProperties: false
+      required: [contentId, title, positionMs, durationMs, completed, updatedAt]
+      properties:
+        contentId: { type: string, format: uuid }
+        title: { type: string }
+        positionMs: { type: integer, minimum: 0 }
+        durationMs: { type: integer, minimum: 1000 }
+        completed: { type: boolean }
+        updatedAt: { type: string, format: date-time }

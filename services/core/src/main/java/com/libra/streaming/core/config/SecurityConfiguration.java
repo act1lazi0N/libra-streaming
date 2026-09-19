@@ -26,10 +26,12 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(IdentityAuthenticationFilter.PUBLIC_ROUTES.toArray(String[]::new)).permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/v1/playback/jwks").permitAll()
                         .requestMatchers("/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/v1/catalog", "/v1/catalog/**").permitAll()
                         .requestMatchers("/v1/profiles", "/v1/profiles/**").authenticated()
                         .requestMatchers("/v1/subscriptions", "/v1/subscriptions/**").authenticated()
+                        .requestMatchers("/v1/playback/sessions", "/v1/playback/sessions/**").authenticated()
                         .requestMatchers("/v1/me", "/v1/me/**", "/v1/auth/change-password", "/v1/auth/logout-all").authenticated()
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors

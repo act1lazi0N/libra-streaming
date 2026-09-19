@@ -49,20 +49,19 @@ another candidate is READY. Existing versioned Media projection handling rejects
 stale events; a stale READY event cannot restore failed current media or select an
 old asset version.
 
-## Boundary for Milestone 5
+## Playback integration (Milestone 5)
 
 This check is a point-in-time observation, with no reservation, session creation,
 ticket issuance, or playlist/segment access. A concurrent change may invalidate it
 after the query snapshot. The result must not be cached or accepted from a client
 as evidence for admission.
 
-Milestone 5 must call the centralized policy afresh on each admission/renewal and
-coordinate its transaction with session persistence, revocation, and profile/history
-lifecycle. Use the returned exact asset version and published revision; never read
-the candidate again. The internal result includes authentication-session expiry and,
-for Premium content, Premium expiry so ticket lifetime can be bounded. It is not a
-substitute for the later signing, audience/purpose checks, or Media enforcement on
-every playlist and segment.
+[Playback admission, renewal and progress](core-playback.md) call this policy afresh
+while holding account and catalog/ancestor locks, coordinating with revocation and
+profile/history lifecycle. Sessions bind the exact returned asset version and
+published revision. Authentication-session and Premium expiry cap signed tickets.
+The policy remains distinct from ticket signing and Media enforcement on every
+playlist and segment; actual Media delivery is separate work.
 
 ## Verification
 

@@ -76,7 +76,7 @@ class SubscriptionIntegrationTest {
         jdbc.update("INSERT INTO subscription_upgrade.identity_accounts(id, email, display_name, password_hash, role) VALUES (?, ?, 'Existing', 'inert-fixture', 'USER')", id, id + "@example.test");
         var upgrade = org.flywaydb.core.Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .schemas("subscription_upgrade").defaultSchema("subscription_upgrade").load();
+                .schemas("subscription_upgrade").defaultSchema("subscription_upgrade").target("4").load();
         assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(upgrade.migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM subscription_upgrade.identity_accounts WHERE id = ?", Integer.class, id)).isEqualTo(1);

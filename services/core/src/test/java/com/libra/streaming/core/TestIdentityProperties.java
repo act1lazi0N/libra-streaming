@@ -7,10 +7,14 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 public final class TestIdentityProperties {
     private static final String JWT = key();
     private static final String MAIL = key();
+    private static final java.security.KeyPair PLAYBACK = playbackKeys();
 
     private TestIdentityProperties() {}
 
     public static void register(DynamicPropertyRegistry registry) {
+        registry.add("libra.playback.private-key", () -> Base64.getEncoder().encodeToString(PLAYBACK.getPrivate().getEncoded()));
+        registry.add("libra.playback.public-key", () -> Base64.getEncoder().encodeToString(PLAYBACK.getPublic().getEncoded()));
+        registry.add("libra.playback.key-id", () -> "test-playback-key");
         registry.add("libra.catalog.media-listener-enabled", () -> false);
         registry.add("libra.identity.jwt-key", () -> JWT);
         registry.add("libra.identity.mail-key", () -> MAIL);
@@ -26,5 +30,13 @@ public final class TestIdentityProperties {
         byte[] bytes = new byte[32];
         new SecureRandom().nextBytes(bytes);
         return Base64.getEncoder().encodeToString(bytes);
+    }
+
+    private static java.security.KeyPair playbackKeys() {
+        try {
+            var generator = java.security.KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return generator.generateKeyPair();
+        } catch (java.security.GeneralSecurityException exception) { throw new IllegalStateException(exception); }
     }
 }
