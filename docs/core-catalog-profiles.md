@@ -24,8 +24,9 @@ administrators do not gain playback entitlement from that role.
   a deleted profile emits its final version plus one.
 
 Milestone 5 adds [history and playback sessions](core-playback.md), with cascading
-removal when a profile is deleted. Watchlists and Analytics personalization remain
-later work and must preserve the same ownership/lifecycle rules. Analytics must consume
+removal when a profile is deleted. [Milestone 6 watchlists](core-community.md) use
+the same ownership checks and cascade on deletion. Analytics personalization remains
+later work. Analytics must consume
 `ProfileDeleted` as a tombstone and reject older lifecycle events. The current
 outbox appends durably; its background publisher remains later work.
 

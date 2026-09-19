@@ -1,0 +1,863 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LIBRA Core watchlist and community",
+    "version": "1.0.0",
+    "description": "Milestone 6. Cookie/CSRF semantics follow core-identity.v1.json. All responses use no-store. Unknown body fields are rejected. Plain text must be rendered as text. Core accepted playback duration alone qualifies reviews; history clearing retains evidence, profile deletion removes its session evidence. Hidden/deleted reviews never contribute to public aggregates. Review/report attempts are capped at 30/20 per account per ten minutes. See docs/core-community.md for lifecycle, ordering, moderation and retry rules."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8081"
+    },
+    {
+      "url": "http://localhost:8080/api/core"
+    }
+  ],
+  "security": [
+    {
+      "cookieAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/profiles/{profileId}/watchlist": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/profileId"
+        }
+      ],
+      "get": {
+        "operationId": "listWatchlist",
+        "summary": "Owned profile; published movie/series metadata only",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WatchlistEntry"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ]
+      }
+    },
+    "/v1/profiles/{profileId}/watchlist/{contentId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/profileId"
+        },
+        {
+          "$ref": "#/components/parameters/contentId"
+        }
+      ],
+      "put": {
+        "operationId": "addWatchlist",
+        "summary": "Idempotently save a published movie/series; verification not required",
+        "responses": {
+          "204": {
+            "description": "Accepted; no response body"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "removeWatchlist",
+        "summary": "Idempotently remove even an unpublished title",
+        "responses": {
+          "204": {
+            "description": "Accepted; no response body"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ]
+      }
+    },
+    "/v1/catalog/{contentId}/reviews": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/contentId"
+        }
+      ],
+      "get": {
+        "operationId": "listPublicReviews",
+        "summary": "Published movie/series; visible reviews and snapshot-consistent aggregate",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ],
+        "security": []
+      }
+    },
+    "/v1/me/reviews/{contentId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/contentId"
+        }
+      ],
+      "get": {
+        "operationId": "getOwnReview",
+        "summary": "Owner only, including hidden/deleted or unpublished-title review",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnReview"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "put": {
+        "operationId": "writeOwnReview",
+        "summary": "Verified account with one qualified 30-second session; zero version only for first creation",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnReview"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteReview"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteOwnReview",
+        "summary": "Erase text/stars; retain moderation tombstone and increment version",
+        "responses": {
+          "204": {
+            "description": "Accepted; no response body"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/ExpectedVersion"
+          }
+        ]
+      }
+    },
+    "/v1/reviews/{reviewId}/reports": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reviewId"
+        }
+      ],
+      "post": {
+        "operationId": "reportReview",
+        "summary": "Verified non-author; public review only; first report retained per account/review",
+        "responses": {
+          "204": {
+            "description": "Accepted; no response body"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Report"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/reviews": {
+      "get": {
+        "operationId": "listModerationReviews",
+        "summary": "Live ADMIN only; historical reports remain after moderation",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdminReview"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "name": "reportedOnly",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/reviews/{reviewId}/moderation": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reviewId"
+        }
+      ],
+      "put": {
+        "operationId": "moderateReview",
+        "summary": "Live ADMIN; atomic versioned visibility change and reasoned audit; no deleted-text resurrection",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnReview"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Moderate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/reviews/{reviewId}/reports": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reviewId"
+        }
+      ],
+      "get": {
+        "operationId": "listReviewReports",
+        "summary": "Live ADMIN; reasons and versions without reporter identities",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReportView"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ]
+      }
+    },
+    "/v1/admin/reviews/{reviewId}/audit": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reviewId"
+        }
+      ],
+      "get": {
+        "operationId": "listReviewAudit",
+        "summary": "Live ADMIN; audit ordered by descending review version",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuditView"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-LIBRA_ACCESS",
+        "description": "Production cookie; local development uses LIBRA_ACCESS."
+      }
+    },
+    "parameters": {
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "Offset": {
+        "name": "offset",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 0
+        }
+      },
+      "Csrf": {
+        "name": "X-CSRF-TOKEN",
+        "in": "header",
+        "required": true,
+        "description": "Masked token from GET /v1/auth/csrf; send its matching CSRF cookie too.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ExpectedVersion": {
+        "name": "expectedVersion",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        }
+      },
+      "profileId": {
+        "name": "profileId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "contentId": {
+        "name": "contentId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "reviewId": {
+        "name": "reviewId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "schemas": {
+      "WatchlistEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "MOVIE",
+              "SERIES"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "contentId",
+          "kind",
+          "title",
+          "addedAt"
+        ]
+      },
+      "WriteReview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stars": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "stars"
+        ]
+      },
+      "Report": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "Moderate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "HIDDEN",
+              "VISIBLE"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "visibility",
+          "reason"
+        ]
+      },
+      "OwnReview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 5
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "contentId",
+          "stars",
+          "text",
+          "hidden",
+          "deleted",
+          "version",
+          "updatedAt"
+        ]
+      },
+      "PublicReview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "stars": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "stars",
+          "text",
+          "updatedAt"
+        ]
+      },
+      "ReviewPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "averageStars": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Two decimal places; null when count is zero. Includes all visible reviews, not only this page."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicReview"
+            }
+          }
+        },
+        "required": [
+          "count",
+          "averageStars",
+          "items"
+        ]
+      },
+      "AdminReview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "review": {
+            "$ref": "#/components/schemas/OwnReview"
+          },
+          "reportCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "review",
+          "reportCount"
+        ]
+      },
+      "ReportView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reviewVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "reason",
+          "reviewVersion",
+          "createdAt"
+        ]
+      },
+      "AuditView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "administratorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "HIDDEN",
+              "VISIBLE"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "previousHidden": {
+            "type": "boolean"
+          },
+          "reviewVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "administratorId",
+          "action",
+          "reason",
+          "previousHidden",
+          "reviewVersion",
+          "correlationId",
+          "createdAt"
+        ]
+      },
+      "Problem": {
+        "type": "object",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "code",
+          "correlationId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Problem Details: 400 INVALID_REQUEST, 401 identity/authentication failure, 403 ACCESS_DENIED/EMAIL_VERIFICATION_REQUIRED/QUALIFIED_VIEW_REQUIRED, 404 NOT_FOUND, 409 VERSION_CONFLICT, 429 RATE_LIMITED, or 500 internal failure. Failed feature mutations leave feature state unchanged; rate counters persist separately.",
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds remaining on 429 responses",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    }
+  }
+}
