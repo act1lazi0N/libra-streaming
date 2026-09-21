@@ -141,10 +141,10 @@ counted once per session, not on every `qualified=true` event. Cumulative durati
 supports convergence after reordered delivery. ProfileDeleted governs downstream
 profile cleanup, including delayed playback events for removed profiles.
 
-The existing outbox append mechanism is used. Its background publisher, lease/retry
-recovery and downstream consumption remain later integration work. No Kafka/Analytics
-call participates in accepting history, and this milestone does not claim delivery
-of the pending outbox or end-to-end exactly-once processing.
+The existing outbox append mechanism is used. [Milestone 7](core-integration-operations.md)
+adds background publication and lease/retry recovery. Analytics consumption remains
+separate service work. No Kafka/Analytics call participates in accepting history;
+end-to-end exactly-once processing is not claimed.
 
 ## Configuration
 

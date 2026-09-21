@@ -28,7 +28,7 @@ removal when a profile is deleted. [Milestone 6 watchlists](core-community.md) u
 the same ownership checks and cascade on deletion. Analytics personalization remains
 later work. Analytics must consume
 `ProfileDeleted` as a tombstone and reject older lifecycle events. The current
-outbox appends durably; its background publisher remains later work.
+outbox appends durably; [Milestone 7](core-integration-operations.md) adds its background publisher.
 
 ## Catalog and revisions
 
@@ -115,9 +115,10 @@ the DLT. Broker access is the trust boundary; no service HTTP JWT adapter is add
 in this milestone. Public exposure of the development broker would allow forged
 readiness events.
 
-DLT inspection/redrive, receipt retention, the general outbox publisher, and
-operational metrics remain later milestones. Redrive must preserve original event
-identity. Operators must retain receipts for the supported replay window.
+DLT inspection/redrive, the general outbox publisher and operational metrics are
+implemented in [Milestone 7](core-integration-operations.md). Redrive preserves original
+event identity. Operators must retain receipts for the supported replay window;
+automated receipt deletion is not enabled.
 Actual Media transcoding/storage/HLS and Analytics consumers remain separate work.
 
 Catalog outbox events use

@@ -65,4 +65,28 @@ public class CatalogQueries {
         return jdbc.query(PUBLIC + " AND c.parent_id = ? ORDER BY c.ordinal, c.id LIMIT ? OFFSET ?",
                 view, parentId, limit, offset);
     }
+
+    // Recommendations group episodes under a series. Publication and READY are still Core checks.
+    private static final String RECOMMENDABLE = """
+            AND ((c.kind = 'MOVIE' AND b.state = 'READY') OR (c.kind = 'SERIES' AND EXISTS (
+                SELECT 1 FROM catalog_contents season JOIN catalog_contents episode ON episode.parent_id = season.id
+                JOIN catalog_media_bindings asset ON asset.id = episode.active_binding AND asset.state = 'READY'
+                WHERE season.parent_id = c.id AND season.published_revision IS NOT NULL
+                    AND episode.published_revision IS NOT NULL)))
+            """;
+
+    public List<PublicView> recommendedCandidates(List<UUID> ids, int limit) {
+        CatalogService.page(limit, 0);
+        if (ids == null || ids.size() > 100 || ids.stream().anyMatch(java.util.Objects::isNull)) { throw DomainException.invalid(); }
+        if (ids.isEmpty()) { return List.of(); }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        var visible = jdbc.query(PUBLIC + RECOMMENDABLE + " AND c.id IN (" + placeholders + ")", view, ids.toArray());
+        var byId = visible.stream().collect(java.util.stream.Collectors.toMap(PublicView::id, item -> item));
+        return ids.stream().distinct().filter(byId::containsKey).limit(limit).map(byId::get).toList();
+    }
+
+    public List<PublicView> newestRecommendable(int limit) {
+        CatalogService.page(limit, 0);
+        return jdbc.query(PUBLIC + RECOMMENDABLE + " ORDER BY c.published_at DESC, c.id LIMIT ?", view, limit);
+    }
 }

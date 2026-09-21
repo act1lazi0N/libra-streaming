@@ -56,7 +56,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics
   endpoint:
     health:
       probes:
@@ -64,6 +64,20 @@ management:
       show-details: never
 
 libra:
+  integration:
+    publisher-enabled: ${CORE_OUTBOX_PUBLISHER_ENABLED:true}
+    dlt-listener-enabled: ${CORE_DLT_LISTENER_ENABLED:true}
+  services:
+    media:
+      enabled: ${CORE_MEDIA_SERVICE_AUTH_ENABLED:false}
+      public-key: ${CORE_MEDIA_SERVICE_PUBLIC_KEY:}
+      key-id: ${CORE_MEDIA_SERVICE_KEY_ID:}
+  analytics:
+    enabled: ${CORE_ANALYTICS_ENABLED:false}
+    base-url: ${CORE_ANALYTICS_BASE_URL:}
+    private-key: ${CORE_ANALYTICS_PRIVATE_KEY:}
+    public-key: ${CORE_ANALYTICS_PUBLIC_KEY:}
+    key-id: ${CORE_ANALYTICS_KEY_ID:}
   playback:
     private-key: ${CORE_PLAYBACK_PRIVATE_KEY:}
     public-key: ${CORE_PLAYBACK_PUBLIC_KEY:}

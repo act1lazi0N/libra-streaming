@@ -35,7 +35,8 @@ public class IdentityAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return PUBLIC_ROUTES.contains(request.getServletPath()) || request.getServletPath().startsWith("/actuator/");
+        return PUBLIC_ROUTES.contains(request.getServletPath()) || request.getServletPath().equals("/actuator/info")
+                || request.getServletPath().equals("/actuator/health") || request.getServletPath().startsWith("/actuator/health/");
     }
 
     @Override

@@ -95,12 +95,11 @@ of serialized UTF-8 at the writer and must omit credentials, tokens, email, and 
 Producers must enforce feature-specific payload schemas when their event types are introduced.
 Consumers may ignore additive envelope fields, but must reject unsupported schema versions.
 
-Pending rows have `published_at IS NULL` and a partial index. Milestone 1 implements durable
-transactional append only: no background process currently drains these rows. The Kafka test
-proves transport independently, not outbox delivery. Later publisher work must add leases,
+Pending rows have `published_at IS NULL` and a partial index. Milestone 1 implemented durable
+transactional append; [Milestone 7](core-integration-operations.md) adds leases,
 bounded retry/recovery, acknowledge-before-marking, and metrics. Unknown acknowledgements may
 replay an event. Consumer deduplication and projection writes must be atomic; stale aggregate
-versions must not replace newer projections. Dead-letter/redrive must retain event identity.
+versions must not replace newer projections. Dead-letter/redrive retains event identity.
 Delivery is at least once; database and Kafka commits are not atomic together.
 
 ## Verification recorded on 2026-09-14

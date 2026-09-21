@@ -58,7 +58,7 @@ docker compose --env-file .env -f infra/compose.yaml config --quiet
 
 The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. SeaweedFS/FFmpeg/HLS integration remains later work.
 
-See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Durable outbox append is implemented; its background publisher follows in a later milestone.
+See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Milestone 7 adds the durable background outbox publisher and recovery operations.
 
 See [Core identity](docs/core-identity.md) for Milestone 2 authentication, CSRF/cookie
 flows, password recovery, administrator bootstrap, mail operations, and the versioned
@@ -81,3 +81,11 @@ delivery, the player and Analytics consumption remain separate work.
 See [Core watchlist and community](docs/core-community.md) for Milestone 6:
 profile watchlists, qualified account reviews, reporting, administrator moderation,
 privacy-safe public ratings and transactional moderation audit.
+
+See [Core Analytics read adapters](docs/core-analytics-adapter.md) and
+[Core integration operations](docs/core-integration-operations.md) for Milestone 7:
+recommendations/statistics with truthful fallback, scoped service JWTs, durable
+outbox delivery/recovery, Media DLT inspection/redrive, transactional audit and
+administrator metrics. Analytics and inbound Media HTTP authentication are disabled
+by default pending dedicated keys. Actual Analytics projections and Media HLS remain
+separate service work.

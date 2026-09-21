@@ -25,6 +25,7 @@ public class SecurityConfiguration {
                         AnonymousAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
+                        .requestMatchers("/actuator/metrics", "/actuator/metrics/**").hasRole("ADMIN")
                         .requestMatchers(IdentityAuthenticationFilter.PUBLIC_ROUTES.toArray(String[]::new)).permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/v1/playback/jwks").permitAll()
                         .requestMatchers("/v1/admin/**").hasRole("ADMIN")

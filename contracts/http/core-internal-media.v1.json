@@ -1,0 +1,113 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LIBRA Core internal Media binding contract",
+    "version": "1.0.0",
+    "description": "Milestone 7 Core receiver; actual Media caller is separate work. Private network; Nginx public path is blocked. Disabled by default. Pin distinct RSA key and kid; RS256, issuer libra-media-services, subject libra-media, sole audience libra-core-internal, purpose service-access, nonblank jti, required iat/exp, no future iat, strictly future exp, lifetime <=60 seconds, zero leeway. Scope media.bindings:read. Browser cookies/playback tickets are rejected. Reads do not grant playback or accept readiness. See docs/core-integration-operations.md."
+  },
+  "servers": [
+    {
+      "url": "http://core:8081"
+    }
+  ],
+  "security": [
+    {
+      "mediaServiceBearer": []
+    }
+  ],
+  "paths": {
+    "/internal/v1/media/bindings/{id}": {
+      "get": {
+        "operationId": "internalMediaBinding",
+        "summary": "Read exact Core-owned binding and candidate/active references",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Known binding; retired bindings can have both flags false; no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Binding"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "mediaServiceBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Dedicated pinned Media RSA key; scope media.bindings:read."
+      }
+    },
+    "schemas": {
+      "Binding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bindingId",
+          "contentId",
+          "assetId",
+          "assetVersion",
+          "candidate",
+          "active"
+        ],
+        "properties": {
+          "bindingId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "candidate": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Problem Details: 400 invalid input; 401 missing/invalid/live-revoked credentials; 403 insufficient role/scope or missing CSRF; 404 missing target; 409 invalid state, stale version or idempotency conflict; 500 internal failure. Error details omit payloads and exception text.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "./core-analytics.v1.json#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    }
+  }
+}

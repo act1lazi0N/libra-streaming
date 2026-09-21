@@ -114,7 +114,7 @@ class FoundationIntegrationTest {
     @Test
     void bootRunsProductionMigrationOnEmptyPostgresAndValidatesItOnRerun() {
         assertThat(jdbc.queryForObject("SELECT current_database()", String.class)).isEqualTo("libra_core_test");
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("6");
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("7");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();

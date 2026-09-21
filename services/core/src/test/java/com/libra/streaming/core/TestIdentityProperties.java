@@ -12,6 +12,10 @@ public final class TestIdentityProperties {
     private TestIdentityProperties() {}
 
     public static void register(DynamicPropertyRegistry registry) {
+        registry.add("libra.integration.publisher-enabled", () -> false);
+        registry.add("libra.integration.dlt-listener-enabled", () -> false);
+        registry.add("libra.services.media.enabled", () -> false);
+        registry.add("libra.analytics.enabled", () -> false);
         registry.add("libra.playback.private-key", () -> Base64.getEncoder().encodeToString(PLAYBACK.getPrivate().getEncoded()));
         registry.add("libra.playback.public-key", () -> Base64.getEncoder().encodeToString(PLAYBACK.getPublic().getEncoded()));
         registry.add("libra.playback.key-id", () -> "test-playback-key");
