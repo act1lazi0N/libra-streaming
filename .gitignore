@@ -7,6 +7,8 @@ CLAUDE.md
 # Java / Maven generated files (keep Maven Wrapper files tracked)
 target/
 *.class
+__pycache__/
+*.pyc
 .flattened-pom.xml
 pom.xml.tag
 pom.xml.releaseBackup

@@ -49,6 +49,12 @@ Open `http://localhost:3000`. Infrastructure-only Compose starts PostgreSQL on `
 
 ## Verification
 
+Milestone 8 adds [Core CI and packaged smoke](docs/core-delivery.md), a complete
+[configuration reference](docs/core-configuration.md), and an
+[API/operations index](docs/core-delivery.md#api-and-contract-map). Use the documented
+gate sequence for Core acceptance; it checks all tests, contracts and a disposable
+Core/PostgreSQL/Kafka/Mailpit/Nginx stack without a workstation `.env`.
+
 ```powershell
 .\mvnw.cmd clean verify
 pnpm.cmd --dir web lint
