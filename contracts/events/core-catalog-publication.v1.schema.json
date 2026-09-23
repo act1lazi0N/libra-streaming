@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "core-event-envelope.v1.schema.json"
+    },
+    {
+      "properties": {
+        "eventType": {
+          "enum": [
+            "CatalogPublished",
+            "CatalogUnpublished",
+            "CatalogAvailabilityChanged"
+          ]
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "contentId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "kind": {
+              "$ref": "../http/core-catalog-profiles.v1.json#/components/schemas/Kind"
+            },
+            "parentId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ordinal": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "published": {
+              "anyOf": [
+                {
+                  "$ref": "../http/core-catalog-profiles.v1.json#/components/schemas/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "active": {
+              "anyOf": [
+                {
+                  "$ref": "../http/core-catalog-profiles.v1.json#/components/schemas/Binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "contentId",
+            "kind",
+            "parentId",
+            "ordinal",
+            "published",
+            "active"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    { "$ref": "core-event-envelope.v1.schema.json" },
+    {
+      "properties": {
+        "eventType": { "const": "PlaybackProgressAccepted" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["accountId", "profileId", "sessionId", "contentId", "assetId", "assetVersion", "sequence", "positionMs", "acceptedWatchedMs", "totalWatchedMs", "qualified", "state"],
+          "properties": {
+            "accountId": { "type": "string", "format": "uuid" },
+            "profileId": { "type": "string", "format": "uuid" },
+            "sessionId": { "type": "string", "format": "uuid" },
+            "contentId": { "type": "string", "format": "uuid" },
+            "assetId": { "type": "string", "format": "uuid" },
+            "assetVersion": { "type": "integer", "minimum": 1 },
+            "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "positionMs": { "type": "integer", "minimum": 0, "maximum": 604800000 },
+            "acceptedWatchedMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
+            "totalWatchedMs": { "type": "integer", "minimum": 0 },
+            "qualified": { "type": "boolean" },
+            "state": { "enum": ["PLAYING", "PAUSED", "BUFFERING", "SEEKING", "ENDED"] }
+          }
+        }
+      }
+    }
+  ]
+}

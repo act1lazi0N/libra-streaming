@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: media-service
+  datasource:
+    url: ${MEDIA_DB_URL:jdbc:postgresql://localhost:5432/libra_media}
+    username: ${MEDIA_DB_USERNAME:libra_media}
+    password: ${MEDIA_DB_PASSWORD:media_local}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+server:
+  port: ${MEDIA_PORT:8082}
+  shutdown: graceful
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+libra:
+  media:
+    s3-endpoint: ${MEDIA_S3_ENDPOINT:http://localhost:8333}
+    source-bucket: ${MEDIA_SOURCE_BUCKET:libra-source}
+    hls-bucket: ${MEDIA_HLS_BUCKET:libra-hls}
+

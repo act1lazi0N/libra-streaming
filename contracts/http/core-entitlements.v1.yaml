@@ -1,0 +1,96 @@
+openapi: 3.1.0
+info:
+  title: LIBRA Core entitlement checks
+  version: 1.0.0
+  description: >-
+    Milestone 4 centralized eligibility for a playable content unit and owned profile.
+    This is a point-in-time check, not a playback session, admission reservation,
+    media ticket, or a guarantee of future access. No playback or storage side effect.
+servers:
+  - url: http://localhost:8081
+  - url: http://localhost:8080/api/core
+security:
+  - cookieAuth: []
+paths:
+  /v1/profiles/{profileId}/entitlements/{contentId}:
+    get:
+      operationId: checkContentEntitlement
+      summary: Check current eligibility using the server-owned entitlement matrix
+      description: >-
+        Requires an active account/session and verified email, even for Free content
+        and administrators. Requires an owned existing profile, a published movie or
+        episode whose ancestors are published, and its exact active READY binding.
+        The access tier comes from the published playable unit, not its draft or
+        container. Premium content additionally requires account expiry strictly
+        later than server time. Does not grant direct access to Media. Callers must
+        not cache the result or submit it as proof for future admission/renewal.
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: contentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Eligible at check time. No media identifiers, credentials, or storage URLs returned.
+          headers:
+            Cache-Control:
+              description: Includes no-store; this response cannot be reused as a grant.
+              schema: { type: string }
+            X-Correlation-ID:
+              schema: { type: string, format: uuid }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Eligibility' }
+        '400':
+          description: INVALID_REQUEST for malformed identifiers.
+          content:
+            application/problem+json:
+              schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+        '401':
+          description: AUTHENTICATION_REQUIRED or INVALID_CREDENTIALS for absent, revoked, expired, or suspended identity.
+          content:
+            application/problem+json:
+              schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+        '403':
+          description: EMAIL_VERIFICATION_REQUIRED or PREMIUM_REQUIRED. Administrators have no playback bypass.
+          content:
+            application/problem+json:
+              schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+        '404':
+          description: NOT_FOUND for a missing/foreign profile or missing/effectively unpublished content.
+          content:
+            application/problem+json:
+              schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+        '409':
+          description: NOT_PLAYABLE_CONTENT for published series/seasons, or MEDIA_NOT_READY for unavailable active media.
+          content:
+            application/problem+json:
+              schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+        default:
+          description: Problem Details; no protected mutation on failure.
+          content:
+            application/problem+json:
+              schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-LIBRA_ACCESS
+      description: Local development uses LIBRA_ACCESS; see core-identity.v1.json. GET has no mutation and requires no CSRF token.
+  schemas:
+    Eligibility:
+      type: object
+      additionalProperties: false
+      required: [eligible, accessTier, checkedAt]
+      properties:
+        eligible: { type: boolean, const: true }
+        accessTier: { type: string, enum: [FREE, PREMIUM] }
+        checkedAt:
+          type: string
+          format: date-time
+          description: UTC server evaluation time, not an expiration or reservation.

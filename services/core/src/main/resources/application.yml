@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: core-service
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+  datasource:
+    url: ${CORE_DB_URL:jdbc:postgresql://localhost:5432/libra_core}
+    username: ${CORE_DB_USERNAME:libra_core}
+    password: ${CORE_DB_PASSWORD:core_local}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    clean-disabled: true
+    validate-migration-naming: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      max-poll-records: 50
+      properties:
+        isolation.level: read_committed
+        max.partition.fetch.bytes: 524288
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 10000
+        max.block.ms: 10000
+  mail:
+    host: ${CORE_MAIL_HOST:localhost}
+    port: ${CORE_MAIL_PORT:1025}
+    username: ${CORE_MAIL_USERNAME:}
+    password: ${CORE_MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${CORE_MAIL_AUTH:false}
+      mail.smtp.starttls.enable: ${CORE_MAIL_STARTTLS:true}
+      mail.smtp.starttls.required: ${CORE_MAIL_STARTTLS:true}
+      mail.smtp.ssl.checkserveridentity: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+server:
+  port: ${CORE_PORT:8081}
+  shutdown: graceful
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+libra:
+  integration:
+    publisher-enabled: ${CORE_OUTBOX_PUBLISHER_ENABLED:true}
+    dlt-listener-enabled: ${CORE_DLT_LISTENER_ENABLED:true}
+  services:
+    media:
+      enabled: ${CORE_MEDIA_SERVICE_AUTH_ENABLED:false}
+      public-key: ${CORE_MEDIA_SERVICE_PUBLIC_KEY:}
+      key-id: ${CORE_MEDIA_SERVICE_KEY_ID:}
+  analytics:
+    enabled: ${CORE_ANALYTICS_ENABLED:false}
+    base-url: ${CORE_ANALYTICS_BASE_URL:}
+    private-key: ${CORE_ANALYTICS_PRIVATE_KEY:}
+    public-key: ${CORE_ANALYTICS_PUBLIC_KEY:}
+    key-id: ${CORE_ANALYTICS_KEY_ID:}
+  playback:
+    private-key: ${CORE_PLAYBACK_PRIVATE_KEY:}
+    public-key: ${CORE_PLAYBACK_PUBLIC_KEY:}
+    key-id: ${CORE_PLAYBACK_KEY_ID:}
+  catalog:
+    media-listener-enabled: ${CORE_MEDIA_LISTENER_ENABLED:true}
+  identity:
+    jwt-key: ${CORE_JWT_KEY:}
+    mail-key: ${CORE_MAIL_ENCRYPTION_KEY:}
+    issuer: libra-core
+    audience: libra-web
+    public-base-url: ${CORE_PUBLIC_BASE_URL:https://localhost}
+    local-development: ${CORE_LOCAL_DEVELOPMENT:false}
+    cookie-secure: ${CORE_COOKIE_SECURE:true}
+    mail-from: ${CORE_MAIL_FROM:libra@example.test}
+    bootstrap-email: ${CORE_BOOTSTRAP_ADMIN_EMAIL:}
+    bootstrap-password: ${CORE_BOOTSTRAP_ADMIN_PASSWORD:}
+    mail-worker-enabled: ${CORE_MAIL_WORKER_ENABLED:true}
+

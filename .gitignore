@@ -1,10 +1,14 @@
 # Local Codex configuration and contributor instructions at any depth
 .codex/
+.claude/
 AGENTS.md
+CLAUDE.md
 
 # Java / Maven generated files (keep Maven Wrapper files tracked)
 target/
 *.class
+__pycache__/
+*.pyc
 .flattened-pom.xml
 pom.xml.tag
 pom.xml.releaseBackup
@@ -22,7 +26,6 @@ dist/
 .cache/
 .pnpm-store/
 *.tsbuildinfo
-next-env.d.ts
 .eslintcache
 .stylelintcache
 

@@ -1,0 +1,5 @@
+**
+!services/
+!services/core/
+!services/core/target/
+!services/core/target/core-service-0.1.0-SNAPSHOT.jar

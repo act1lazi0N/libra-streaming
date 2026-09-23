@@ -1,0 +1,511 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LIBRA Core integration operations",
+    "version": "1.0.0",
+    "description": "Milestone 7. Live ADMIN cookie session required; POST also requires CSRF. Responses no-store. Queue rows omit raw event key/body. Receipt means queued; SENT means Kafka ACK, not projection success. See docs/core-integration-operations.md."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8081"
+    },
+    {
+      "url": "http://localhost:8080/api/core"
+    }
+  ],
+  "security": [
+    {
+      "cookieAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/admin/operations/outbox": {
+      "get": {
+        "operationId": "pendingOutbox",
+        "summary": "Unsent outbox rows, oldest first",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Work"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/operations/media-dead-letters": {
+      "get": {
+        "operationId": "mediaDeadLetters",
+        "summary": "Captured Media dead letters, newest first",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Work"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/operations/audit": {
+      "get": {
+        "operationId": "integrationAudit",
+        "summary": "Operation receipts, newest first",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Audit"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/operations/summary": {
+      "get": {
+        "operationId": "integrationSummary",
+        "summary": "Nonempty unsent queue/state groups; omitted group means zero at this snapshot",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QueueCount"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/admin/operations/outbox/{id}/retry": {
+      "post": {
+        "operationId": "retryOutbox",
+        "summary": "Only PARKED rows may be requeued.",
+        "description": "requestId is scoped to the live administrator. Identical replay returns the original receipt; changed arguments return 409 IDEMPOTENCY_CONFLICT. expectedVersion must match the current row on first execution. State change and audit are atomic. Redrive never edits or renumbers events.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-TOKEN",
+            "in": "header",
+            "required": true,
+            "description": "Masked token from GET /v1/auth/csrf; include its matching CSRF cookie.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Command"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued operation, or original receipt replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Audit"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/admin/operations/media-dead-letters/{id}/redrive": {
+      "post": {
+        "operationId": "redriveMedia",
+        "summary": "Queue HELD, PARKED or SENT rows. Requires a valid unchanged original event and matching binding; PENDING is rejected.",
+        "description": "requestId is scoped to the live administrator. Identical replay returns the original receipt; changed arguments return 409 IDEMPOTENCY_CONFLICT. expectedVersion must match the current row on first execution. State change and audit are atomic. Redrive never edits or renumbers events.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-TOKEN",
+            "in": "header",
+            "required": true,
+            "description": "Masked token from GET /v1/auth/csrf; include its matching CSRF cookie.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Command"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued operation, or original receipt replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Audit"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "LIBRA_ACCESS"
+      }
+    },
+    "schemas": {
+      "Command": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId",
+          "expectedVersion",
+          "reason"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": ".*\\S.*"
+          }
+        }
+      },
+      "Audit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "administratorId",
+          "requestId",
+          "action",
+          "targetId",
+          "expectedVersion",
+          "resultingVersion",
+          "reason",
+          "correlationId",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "administratorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "OUTBOX_RETRY",
+              "MEDIA_DLT_REDRIVE"
+            ]
+          },
+          "targetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "resultingVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Work": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state",
+          "attempts",
+          "version",
+          "errorCode",
+          "createdAt",
+          "nextAttemptAt",
+          "leaseUntil",
+          "eventId",
+          "payloadAvailable"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "HELD",
+              "PENDING",
+              "SENT",
+              "PARKED"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextAttemptAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "leaseUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "eventId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "payloadAvailable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "QueueCount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "queue",
+          "state",
+          "count",
+          "oldestAgeSeconds"
+        ],
+        "properties": {
+          "queue": {
+            "type": "string",
+            "enum": [
+              "OUTBOX",
+              "MEDIA_DLT"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "HELD",
+              "PENDING",
+              "PARKED"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "oldestAgeSeconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Problem Details: 400 invalid input; 401 missing/invalid/live-revoked credentials; 403 insufficient role/scope or missing CSRF; 404 missing target; 409 invalid state, stale version or idempotency conflict; 500 internal failure. Error details omit payloads and exception text.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "./core-analytics.v1.json#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    }
+  }
+}

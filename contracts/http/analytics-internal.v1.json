@@ -1,0 +1,240 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LIBRA proposed Analytics internal read contract",
+    "version": "1.0.0",
+    "description": "Consumer contract implemented by Core; Analytics server implementation is NOT delivered in the Core milestone 7 scope. Recommendations return movie/series IDs, same profileId, rank order and projection updatedAt. Core filters current visibility and READY availability. Statistics echo the inclusive UTC window, maximum 31 days through today: qualifiedViews = one per session reaching 30 seconds, uniqueViewers = distinct qualified accounts over the full range, acceptedWatchedMs = sum of Core-accepted increments. Views/uniques use first-qualification UTC date; increments use accepted-event UTC date. Late events correct historical buckets. Require nonnegative counts and uniqueViewers <= qualifiedViews. Reject unknown fields. Future updatedAt is invalid; Core marks snapshots older than 15 minutes stale. See docs/core-analytics-adapter.md."
+  },
+  "servers": [
+    {
+      "url": "https://analytics.example.test"
+    }
+  ],
+  "security": [
+    {
+      "serviceJwt": []
+    }
+  ],
+  "paths": {
+    "/internal/v1/recommendations/query": {
+      "post": {
+        "operationId": "queryRecommendations",
+        "summary": "Read-only internal query; requires exactly recommendations:read",
+        "x-required-scope": "recommendations:read",
+        "parameters": [
+          {
+            "name": "X-Correlation-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Complete uncompressed JSON snapshot; maximum 65,536 bytes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid service JWT"
+          },
+          "403": {
+            "description": "Wrong scope"
+          },
+          "default": {
+            "description": "Failure; Core discards the body and degrades safely"
+          }
+        }
+      }
+    },
+    "/internal/v1/statistics/query": {
+      "post": {
+        "operationId": "queryStatistics",
+        "summary": "Read-only internal query; requires exactly statistics:read",
+        "x-required-scope": "statistics:read",
+        "parameters": [
+          {
+            "name": "X-Correlation-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatisticsQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Complete uncompressed JSON snapshot; maximum 65,536 bytes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatisticsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid service JWT"
+          },
+          "403": {
+            "description": "Wrong scope"
+          },
+          "default": {
+            "description": "Failure; Core discards the body and degrades safely"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "serviceJwt": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Pin a trusted dedicated RSA public key/kid (>=2048 bits), RS256 only. Require iss=libra-core-services, sub=libra-core, aud=[libra-recommendation-analytics], purpose=service-access, nonempty jti, iat <= now < exp, and 0 < exp-iat <= 60 seconds. Enforce exact endpoint scope string. Browser access JWTs/playback tickets/forwarded user headers are not service credentials. No arbitrary token-supplied key URL. No one-time replay guarantee."
+      }
+    },
+    "schemas": {
+      "RecommendationQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "profileId",
+          "limit"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "CandidateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "updatedAt",
+          "contentIds"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "contentIds": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "StatisticsQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "StatisticsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "updatedAt",
+          "qualifiedViews",
+          "uniqueViewers",
+          "acceptedWatchedMs"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "qualifiedViews": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uniqueViewers": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "acceptedWatchedMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

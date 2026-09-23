@@ -1,0 +1,152 @@
+openapi: 3.1.0
+info:
+  title: LIBRA Core simulated Premium
+  version: 1.0.0
+  description: >-
+    Milestone 4. Account-wide simulated Premium, with no payment or
+    automatic renewal. Unknown request fields are rejected. This API does not
+    authorize playback. Cookie and CSRF lifecycle: core-identity.v1.json.
+servers:
+  - url: http://localhost:8081
+  - url: http://localhost:8080/api/core
+security:
+  - cookieAuth: []
+paths:
+  /v1/subscriptions:
+    get:
+      operationId: subscriptionStatus
+      summary: Current account subscription at server time
+      description: >-
+        Active session required; unverified users may read. NONE means no purchase,
+        ACTIVE means expiresAt is strictly later than server time, otherwise EXPIRED.
+        Premium is shared by all account profiles. Status is not playback entitlement.
+      responses:
+        '200':
+          description: Current subscription; Cache-Control includes no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionStatus' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/subscriptions/simulate:
+    post:
+      operationId: simulatePremiumPurchase
+      summary: Simulate a 30-day purchase or replay its original receipt
+      description: >-
+        Requires an active session and currently verified email, including for admins
+        and retries. Each new key adds exactly 720 hours from max(server time, current
+        expiry). Keys are scoped to the account and this operation, and retained with
+        purchase receipts without expiry. Same key and plan return the original receipt
+        (even after later purchases); changed plan with that key returns 409
+        IDEMPOTENCY_CONFLICT. An unsupported plan with a new key returns 400 INVALID_REQUEST.
+        Failed transactions retain neither expiry changes nor keys. Both first success
+        and replay return 200. A receipt is a historical result, not current status.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated UUID. Reuse for network retries; use a new UUID for an intentional purchase.
+          schema: { type: string, format: uuid }
+        - name: X-CSRF-TOKEN
+          in: header
+          required: true
+          description: Token from GET /v1/auth/csrf, sent with the associated CSRF cookie.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [plan]
+              properties:
+                plan: { type: string, const: PREMIUM_30_DAYS }
+      responses:
+        '200':
+          description: Persisted simulated receipt; Cache-Control includes no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Purchase' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403':
+          description: EMAIL_VERIFICATION_REQUIRED or ACCESS_DENIED for invalid/missing CSRF.
+          content:
+            application/problem+json:
+              schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+        '409':
+          description: IDEMPOTENCY_CONFLICT; the prior purchase remains unchanged.
+          content:
+            application/problem+json:
+              schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/subscriptions/purchases:
+    get:
+      operationId: subscriptionPurchases
+      summary: Current account simulated purchase history
+      description: >-
+        Active session required; unverified users may read. Ordered by purchasedAt
+        descending then id descending. Offset pages can shift when new purchases occur.
+        No email, account IDs, credentials, or idempotency keys are returned.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+      responses:
+        '200':
+          description: Owned receipts only; Cache-Control includes no-store.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Purchase' }
+        default: { $ref: '#/components/responses/Problem' }
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-LIBRA_ACCESS
+      description: Local development uses LIBRA_ACCESS; see core-identity.v1.json.
+  responses:
+    Problem:
+      description: >-
+        Problem Details with stable code and correlationId. 400 INVALID_REQUEST,
+        401 AUTHENTICATION_REQUIRED or INVALID_CREDENTIALS (inactive account/session or missing login),
+        403 ACCESS_DENIED or EMAIL_VERIFICATION_REQUIRED, 409 IDEMPOTENCY_CONFLICT,
+        or 500 INTERNAL_ERROR. No protected mutation on rejection.
+      content:
+        application/problem+json:
+          schema: { $ref: 'core-foundation.v1.yaml#/components/schemas/Problem' }
+  schemas:
+    SubscriptionStatus:
+      type: object
+      additionalProperties: false
+      required: [status, expiresAt, simulated]
+      properties:
+        status: { type: string, enum: [NONE, ACTIVE, EXPIRED] }
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: UTC; null only for NONE. Equality with server time means expired.
+        simulated: { type: boolean, const: true }
+    Purchase:
+      type: object
+      additionalProperties: false
+      required: [id, plan, simulated, purchasedAt, termStart, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        plan: { type: string, const: PREMIUM_30_DAYS }
+        simulated: { type: boolean, const: true }
+        purchasedAt: { type: string, format: date-time }
+        termStart:
+          type: string
+          format: date-time
+          description: UTC max(purchasedAt, previous expiry); may be in the future.
+        expiresAt:
+          type: string
+          format: date-time
+          description: UTC termStart plus 720 hours; immutable historical result.

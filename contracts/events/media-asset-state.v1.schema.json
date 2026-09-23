@@ -1,0 +1,116 @@
+{
+  "type": "object",
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "const": "MediaAssetStateChanged"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "aggregateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "aggregateVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correlationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "contentId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "bindingId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "assetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "assetVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "PROCESSING",
+            "READY",
+            "FAILED"
+          ]
+        },
+        "durationSeconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 604800
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "contentId",
+        "bindingId",
+        "assetId",
+        "assetVersion",
+        "state"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "READY"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "durationSeconds"
+            ],
+            "properties": {
+              "durationSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 604800
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "eventId",
+    "eventType",
+    "schemaVersion",
+    "aggregateId",
+    "aggregateVersion",
+    "occurredAt",
+    "correlationId",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:libra:media:asset-state:v1",
+  "description": "Topic media.assets.v1. Key and aggregateId must equal payload.assetId. Media owns monotonically increasing aggregateVersion. Core validates exact binding/content/asset/version, atomically records eventId and ignores stale projection versions. Maximum 256 KiB UTF-8."
+}

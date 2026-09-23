@@ -1,0 +1,291 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LIBRA Core Analytics read adapters",
+    "version": "1.0.0",
+    "description": "Milestone 7. Core-only adapter; downstream Analytics implementation is separate. Cookie semantics follow core-identity.v1.json. All responses use no-store. Recommendations never grant playback rights. 500 ms downstream budget, no application retry; 15-minute freshness threshold. Full rules: docs/core-analytics-adapter.md."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8081"
+    },
+    {
+      "url": "http://localhost:8080/api/core"
+    }
+  ],
+  "security": [
+    {
+      "cookieAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/profiles/{profileId}/recommendations": {
+      "get": {
+        "operationId": "profileRecommendations",
+        "summary": "Owned profile, live account; current Core catalog filtered recommendations or labeled newest-title fallback",
+        "parameters": [
+          {
+            "name": "profileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot or explicit fallback/unavailable result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recommendations"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid request, 401 unauthenticated, 403 not ADMIN, 404 profile not owned/missing. Core authorization failures never become fallback.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/statistics": {
+      "get": {
+        "operationId": "adminStatistics",
+        "summary": "Live ADMIN, inclusive UTC range up to 31 days ending no later than today",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot or explicit fallback/unavailable result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Statistics"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid request, 401 unauthenticated, 403 not ADMIN, 404 profile not owned/missing. Core authorization failures never become fallback.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-LIBRA_ACCESS",
+        "description": "Local development uses LIBRA_ACCESS; service JWTs are not browser credentials."
+      }
+    },
+    "schemas": {
+      "Recommendations": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "reason",
+          "updatedAt",
+          "items"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "ANALYTICS",
+              "FALLBACK"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "DISABLED",
+              "UNAVAILABLE",
+              "INVALID_RESPONSE",
+              "STALE",
+              "NO_VISIBLE_CANDIDATES"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "core-catalog-profiles.v1.json#/components/schemas/PublicContent"
+            }
+          }
+        }
+      },
+      "Statistics": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "reason",
+          "from",
+          "to",
+          "updatedAt",
+          "qualifiedViews",
+          "uniqueViewers",
+          "acceptedWatchedMs"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "STALE",
+              "UNAVAILABLE"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "DISABLED",
+              "UNAVAILABLE",
+              "INVALID_RESPONSE",
+              "STALE",
+              "NO_VISIBLE_CANDIDATES"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "qualifiedViews": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "uniqueViewers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "acceptedWatchedMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "code",
+          "correlationId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  }
+}
