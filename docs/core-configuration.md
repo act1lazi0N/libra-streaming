@@ -1,4 +1,4 @@
-# Core configuration reference
+# Core: Configuration reference
 
 Core requires Java 21, PostgreSQL, Kafka, SMTP and persistent signing/encryption
 keys. `services/core/src/main/resources/application.yml` is the runtime source of

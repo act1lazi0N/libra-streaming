@@ -1,4 +1,4 @@
-# Media persistence checkpoint (M03)
+# Media: Persistence (Milestone 03)
 
 M03 establishes local PostgreSQL ownership for the first upload slice. It does not expose an upload route, authorize a Media control request, inspect object storage, process media, or publish a Kafka event. The wire contracts in `contracts/http/` remain the target for later milestones.
 

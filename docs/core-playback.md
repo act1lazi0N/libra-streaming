@@ -1,4 +1,4 @@
-# Core playback and history (Milestone 5)
+# Core: Playback and history (Milestone 05)
 
 Core now admits and renews playback sessions, signs Media tickets, accepts ordered
 progress, maintains per-profile resume/history, selects the next eligible episode,

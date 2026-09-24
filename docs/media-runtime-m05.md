@@ -1,4 +1,4 @@
-# Media runtime and private storage checkpoint (M05)
+# Media: Runtime and private storage (Milestone 05)
 
 Historical M05 evidence below is retained. [M06 storage hardening](media-storage-m06.md) supersedes its credential defaults, host-port exposure, startup checks, and negative-access limitations. Use the M06 smoke for current acceptance.
 

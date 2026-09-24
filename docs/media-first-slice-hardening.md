@@ -1,4 +1,4 @@
-# Media first-slice contract hardening (M02)
+# Media: First-slice contract hardening (Milestone 02)
 
 This review applies to the proposed Core and Media upload operations in
 `contracts/http/core-media-uploads.v1.yaml` and

@@ -1,4 +1,4 @@
-# Core profiles and catalog (Milestone 3)
+# Core: Profiles and catalog (Milestone 03)
 
 Core implements owned profiles, immutable catalog metadata revisions, explicit
 publication, PostgreSQL search, and versioned Media readiness projections.

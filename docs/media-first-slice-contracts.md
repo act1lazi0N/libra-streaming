@@ -1,4 +1,4 @@
-# Media first-slice contracts and state model (M01)
+# Media: First-slice contracts and state model (Milestone 01)
 
 This is a contract checkpoint, not a running upload pipeline. The baseline is
 `features/media` at `31819e76180cfcaae822e865297993c68f13ff2c` with a clean

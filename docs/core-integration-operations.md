@@ -1,4 +1,4 @@
-# Milestone 7: Core integration operations
+# Core: Integration operations (Milestone 07)
 
 Core now owns durable outbox publication, Media dead-letter capture/redrive,
 scoped inbound service authentication and administrator operational visibility.

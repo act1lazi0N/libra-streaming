@@ -1,4 +1,4 @@
-# Media persistence hardening checkpoint (M04)
+# Media: Persistence hardening (Milestone 04)
 
 This checkpoint hardens the local persistence primitives introduced in M03. Core still has no upload HTTP route, and Media still has no authenticated control endpoint, storage check, worker, or Kafka publisher.
 

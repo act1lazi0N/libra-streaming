@@ -1,4 +1,4 @@
-# Core foundation (Milestone 1)
+# Core: Foundation (Milestone 01)
 
 This milestone establishes runtime, API, database, and event-writing infrastructure.
 It does not implement identity, catalog, subscriptions, playback, or Media/Analytics consumers.

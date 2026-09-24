@@ -1,4 +1,4 @@
-# Milestone 7: Core Analytics read adapters
+# Core: Analytics read adapters (Milestone 07)
 
 This slice implements Core's recommendation/statistics read boundary and its
 outbound scoped service identity. It does **not** implement the Analytics service,

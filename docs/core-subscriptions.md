@@ -1,4 +1,4 @@
-# Core simulated Premium (Milestone 4)
+# Core: Simulated Premium (Milestone 04)
 
 This slice implements account-wide simulated Premium status, activation, purchase
 history, durable idempotency, and concurrent term extension. No money is collected

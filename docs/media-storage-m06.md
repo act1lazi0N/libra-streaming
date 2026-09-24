@@ -1,4 +1,4 @@
-# Media storage security checkpoint (M06)
+# Media: Storage security (Milestone 06)
 
 M06 hardens the existing storage runtime. It does not enable upload, service authentication, FFmpeg, Kafka publication, or HLS delivery.
 
