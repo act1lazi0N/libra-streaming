@@ -1,5 +1,7 @@
 # Media runtime and private storage checkpoint (M05)
 
+Historical M05 evidence below is retained. [M06 storage hardening](media-storage-m06.md) supersedes its credential defaults, host-port exposure, startup checks, and negative-access limitations. Use the M06 smoke for current acceptance.
+
 M05 adds an internal SeaweedFS S3 adapter and a packaged runtime probe. It does not enable an upload API, browser PUT URL, protected HLS route, FFmpeg job, or Kafka publication. The existing Media HTTP security chain still denies non-actuator requests.
 
 ## Runtime configuration

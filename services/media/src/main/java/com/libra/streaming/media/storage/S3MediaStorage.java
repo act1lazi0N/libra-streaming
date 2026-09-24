@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -48,8 +49,10 @@ final class S3MediaStorage {
         }
         long size = Files.size(real);
         if (size < 1 || size > properties.maxObjectBytes()) { throw new IllegalArgumentException("Object size exceeds limit"); }
-        client.putObject(PutObjectRequest.builder().bucket(location.bucket()).key(location.key())
-                .contentType(contentType).contentLength(size).build(), RequestBody.fromFile(real));
+        try {
+            client.putObject(PutObjectRequest.builder().bucket(location.bucket()).key(location.key())
+                    .contentType(contentType).contentLength(size).build(), RequestBody.fromFile(real));
+        } catch (SdkException failure) { throw MediaStorageException.from(failure); }
     }
 
     Optional<ObjectMetadata> head(Area area, String key) {
@@ -60,8 +63,8 @@ final class S3MediaStorage {
             return Optional.of(new ObjectMetadata(response.contentLength(), response.contentType()));
         } catch (S3Exception exception) {
             if (exception.statusCode() == 404) { return Optional.empty(); }
-            throw exception;
-        }
+            throw MediaStorageException.from(exception);
+        } catch (SdkException failure) { throw MediaStorageException.from(failure); }
     }
 
     Path download(Area area, String key) throws IOException {
@@ -84,6 +87,8 @@ final class S3MediaStorage {
             if (declared >= 0 && copied != declared) { throw new IOException("Object length mismatch"); }
             completed = true;
             return destination;
+        } catch (SdkException failure) {
+            throw MediaStorageException.from(failure);
         } finally {
             if (!completed) { Files.deleteIfExists(destination); }
         }
@@ -91,7 +96,9 @@ final class S3MediaStorage {
 
     void delete(Area area, String key) {
         var location = location(area, key);
-        client.deleteObject(DeleteObjectRequest.builder().bucket(location.bucket()).key(location.key()).build());
+        try {
+            client.deleteObject(DeleteObjectRequest.builder().bucket(location.bucket()).key(location.key()).build());
+        } catch (SdkException failure) { throw MediaStorageException.from(failure); }
     }
 
     private Location location(Area area, String key) {

@@ -16,6 +16,7 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketCorsRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.core.exception.SdkException;
 
 /** Explicit one-shot setup and probe for a disposable runtime; both flags default off. */
 final class MediaStorageStartup implements ApplicationRunner {
@@ -32,8 +33,17 @@ final class MediaStorageStartup implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
-        if (properties.initializeBuckets()) { initialize(); }
-        if (properties.probeOnStartup()) { probe(); }
+        try {
+            if (properties.initializeBuckets()) { initialize(); }
+            // Always validate both configured buckets with the intended identity before readiness.
+            client.headBucket(b -> b.bucket(properties.sourceBucket()));
+            client.headBucket(b -> b.bucket(properties.hlsBucket()));
+            if (properties.probeOnStartup()) { probe(); }
+        } catch (SdkException failure) {
+            LOG.warn("MEDIA_STORAGE_STARTUP_FAILED status={}",
+                    failure instanceof S3Exception s3 ? s3.statusCode() : "transport");
+            throw MediaStorageException.from(failure);
+        }
     }
 
     private void initialize() {
@@ -41,7 +51,7 @@ final class MediaStorageStartup implements ApplicationRunner {
         ensureBucket(properties.hlsBucket());
         client.putBucketCors(PutBucketCorsRequest.builder().bucket(properties.sourceBucket())
                 .corsConfiguration(CORSConfiguration.builder().corsRules(CORSRule.builder()
-                        .allowedOrigins(properties.browserOrigin().toString())
+                        .allowedOrigins(properties.browserOrigin())
                         .allowedMethods("PUT", "HEAD")
                         .allowedHeaders("Content-Type")
                         .maxAgeSeconds(300)
@@ -79,9 +89,12 @@ final class MediaStorageStartup implements ApplicationRunner {
             }
             verified = true;
         } finally {
-            if (uploaded) { storage.delete(S3MediaStorage.Area.SOURCE, key); }
-            Files.deleteIfExists(source);
-            if (downloaded != null) { Files.deleteIfExists(downloaded); }
+            try {
+                if (uploaded) { storage.delete(S3MediaStorage.Area.SOURCE, key); }
+            } finally {
+                Files.deleteIfExists(source);
+                if (downloaded != null) { Files.deleteIfExists(downloaded); }
+            }
         }
         if (verified) { LOG.info("MEDIA_STORAGE_PROBE_PASS"); }
     }

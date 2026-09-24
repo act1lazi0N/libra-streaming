@@ -20,7 +20,7 @@ class MediaStorageConfiguration {
     @Bean(destroyMethod = "close")
     S3Client mediaS3Client(MediaStorageProperties properties) {
         return S3Client.builder()
-                .endpointOverride(properties.internalEndpoint())
+                .endpointOverride(properties.internalEndpointUri())
                 .region(Region.of(properties.region()))
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(properties.accessKey(), properties.secretKey())))
@@ -35,6 +35,11 @@ class MediaStorageConfiguration {
                 .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
                 .forcePathStyle(true)
                 .build();
+    }
+
+    @Bean
+    MediaStorageHealthIndicator mediaStorageHealthIndicator(S3Client client, MediaStorageProperties properties) {
+        return new MediaStorageHealthIndicator(client, properties);
     }
 
     @Bean

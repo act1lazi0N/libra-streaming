@@ -26,6 +26,13 @@ management:
       probes:
         enabled: true
       show-details: never
+      group:
+        readiness:
+          include: readinessState,db,mediaStorage
+      validate-group-membership: false # Storage can be explicitly disabled in persistence-only tests.
+logging:
+  level:
+    software.amazon.awssdk: OFF # SDK diagnostics can contain signed requests and remote error bodies.
 libra:
   media:
     storage:

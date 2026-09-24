@@ -6,7 +6,7 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "libra.media.storage")
-public record MediaStorageProperties(URI internalEndpoint, URI browserEndpoint, URI browserOrigin,
+public record MediaStorageProperties(String internalEndpoint, String browserEndpoint, String browserOrigin,
         String region, String accessKey, String secretKey, String sourceBucket, String hlsBucket,
         String stagingPrefix, String sourcePrefix, String hlsPrefix, Duration connectTimeout,
         Duration requestTimeout, long maxObjectBytes, Path scratchDirectory, boolean allowHttp,
@@ -18,6 +18,9 @@ public record MediaStorageProperties(URI internalEndpoint, URI browserEndpoint, 
         required(region, "region");
         required(accessKey, "access key");
         required(secretKey, "secret key");
+        if (!accessKey.matches("[A-Za-z0-9_+=/-]{3,128}")) { throw invalid("access key is malformed"); }
+        if (!secretKey.matches("[A-Za-z0-9_+=/-]{16,256}")) { throw invalid("secret key is malformed"); }
+        if (accessKey.equals(secretKey)) { throw invalid("access and secret keys must differ"); }
         bucket(sourceBucket, "source bucket");
         bucket(hlsBucket, "HLS bucket");
         if (sourceBucket.equals(hlsBucket)) { throw invalid("source and HLS buckets must differ"); }
@@ -44,17 +47,26 @@ public record MediaStorageProperties(URI internalEndpoint, URI browserEndpoint, 
         }
     }
 
-    private static void endpoint(URI value, boolean allowHttp, String label) {
+    // Bind strings first: the generic URI converter can include raw credentials in parse errors.
+    private static URI endpoint(String configured, boolean allowHttp, String label) {
+        String message = label + " must be an allowed HTTP(S) origin without path or credentials";
+        URI value;
+        try { value = configured == null ? null : URI.create(configured); }
+        catch (IllegalArgumentException failure) { throw invalid(message); }
         if (value == null || value.getHost() == null || value.getUserInfo() != null
+                || value.getPort() == 0 || value.getPort() > 65535
                 || value.getQuery() != null || value.getFragment() != null
                 || !(value.getPath().isEmpty() || value.getPath().equals("/"))
                 || !("https".equals(value.getScheme()) || (allowHttp && "http".equals(value.getScheme())))) {
-            throw invalid(label + " must be an allowed HTTP(S) origin without path or credentials");
+            throw invalid(message);
         }
+        return value;
     }
 
-    private static void origin(URI value, boolean allowHttp) {
-        endpoint(value, allowHttp, "browser origin");
+    public URI internalEndpointUri() { return URI.create(internalEndpoint); }
+
+    private static void origin(String configured, boolean allowHttp) {
+        URI value = endpoint(configured, allowHttp, "browser origin");
         if (!value.getPath().isEmpty()) { throw invalid("browser origin must not have a path"); }
         if (value.getPort() < 0 && value.getScheme().equals("http")) {
             throw invalid("browser origin must include an explicit HTTP port");

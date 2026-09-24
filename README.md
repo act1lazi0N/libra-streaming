@@ -13,7 +13,7 @@ LIBRA is a VOD learning project built as a monorepo with three Spring Boot servi
 
 Each backend owns a separate PostgreSQL database. Kafka carries integration events; SeaweedFS stores private source and HLS objects.
 
-The credentials in `.env.example` and `infra/compose.yaml` are disposable local-development values. Use secret injection and separately provisioned database roles outside this Compose environment.
+Database credentials in `.env.example` and `infra/compose.yaml` are disposable local-development values. Storage credentials must be generated explicitly. Use secret injection and separately provisioned database roles outside this Compose environment.
 
 ## Prerequisites
 
@@ -31,6 +31,9 @@ Follow [Core identity setup](docs/core-identity.md#local-startup) and
 [playback key setup](docs/core-playback.md#configuration) to populate the required
 keys and load `CORE_*` configuration into the terminal before starting Core.
 Spring does not automatically read this `.env` when launched with Maven.
+Populate `SEAWEEDFS_ACCESS_KEY` and `SEAWEEDFS_SECRET_KEY` in the ignored `.env`
+with independent random values before starting Compose; see
+[Media storage security](docs/media-storage-m06.md) for local setup and verification.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d
@@ -62,7 +65,7 @@ pnpm.cmd --dir web build
 docker compose --env-file .env -f infra/compose.yaml config --quiet
 ```
 
-The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. SeaweedFS/FFmpeg/HLS integration remains later work.
+The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests; FFmpeg and protected HLS integration remain later work.
 
 See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Milestone 7 adds the durable background outbox publisher and recovery operations.
 
