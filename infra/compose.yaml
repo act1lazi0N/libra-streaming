@@ -62,9 +62,9 @@ services:
       AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:-libra_local_secret}
       S3_BUCKET: libra-source,libra-hls
     ports:
-      - "8333:8333"
-      - "8888:8888"
-      - "9333:9333"
+      - "127.0.0.1:8333:8333"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:9333:9333"
     volumes:
       - seaweedfs-data:/data
     restart: unless-stopped
@@ -113,8 +113,31 @@ services:
       MEDIA_DB_URL: jdbc:postgresql://postgres:5432/libra_media
       MEDIA_DB_USERNAME: libra_media
       MEDIA_DB_PASSWORD: media_local
-      MEDIA_S3_ENDPOINT: http://seaweedfs:8333
+      MEDIA_STORAGE_ENABLED: true
+      MEDIA_S3_INTERNAL_ENDPOINT: http://seaweedfs:8333
+      MEDIA_S3_BROWSER_ENDPOINT: ${MEDIA_S3_BROWSER_ENDPOINT:-http://localhost:8333}
+      MEDIA_BROWSER_ORIGIN: ${MEDIA_BROWSER_ORIGIN:-http://localhost:8080}
+      MEDIA_S3_REGION: us-east-1
+      MEDIA_S3_ACCESS_KEY: ${SEAWEEDFS_ACCESS_KEY:-}
+      MEDIA_S3_SECRET_KEY: ${SEAWEEDFS_SECRET_KEY:-}
+      MEDIA_SOURCE_BUCKET: libra-source
+      MEDIA_HLS_BUCKET: libra-hls
+      MEDIA_STAGING_PREFIX: staging/
+      MEDIA_FROZEN_PREFIX: sources/
+      MEDIA_HLS_PREFIX: hls/
+      MEDIA_S3_CONNECT_TIMEOUT: 3s
+      MEDIA_S3_REQUEST_TIMEOUT: 30s
+      MEDIA_MAX_OBJECT_BYTES: 268435456
+      MEDIA_SCRATCH_DIRECTORY: /tmp/media
+      MEDIA_S3_ALLOW_HTTP: true
+      MEDIA_STORAGE_INITIALIZE_BUCKETS: ${MEDIA_STORAGE_INITIALIZE_BUCKETS:-false}
+      MEDIA_STORAGE_PROBE_ON_STARTUP: false
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=536870912,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }

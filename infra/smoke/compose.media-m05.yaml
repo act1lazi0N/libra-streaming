@@ -1,0 +1,55 @@
+# Disposable packaged Media + private SeaweedFS fixture. No host ports or workstation volumes.
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: libra_media
+      POSTGRES_PASSWORD: ${LIBRA_M05_DB_PASSWORD:?Run check-media-m05.ps1}
+      POSTGRES_DB: libra_media
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U libra_media -d libra_media"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.46
+    command: ["mini", "-dir=/data"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${LIBRA_M05_S3_ACCESS:?Run check-media-m05.ps1}
+      AWS_SECRET_ACCESS_KEY: ${LIBRA_M05_S3_SECRET:?Run check-media-m05.ps1}
+      S3_BUCKET: libra-source,libra-hls
+
+  media:
+    build: { context: ../.., dockerfile: services/media/Dockerfile }
+    environment:
+      MEDIA_DB_URL: jdbc:postgresql://postgres:5432/libra_media
+      MEDIA_DB_USERNAME: libra_media
+      MEDIA_DB_PASSWORD: ${LIBRA_M05_DB_PASSWORD:?Run check-media-m05.ps1}
+      MEDIA_STORAGE_ENABLED: true
+      MEDIA_S3_INTERNAL_ENDPOINT: http://seaweedfs:8333
+      MEDIA_S3_BROWSER_ENDPOINT: http://localhost:8333
+      MEDIA_BROWSER_ORIGIN: http://localhost:8080
+      MEDIA_S3_REGION: us-east-1
+      MEDIA_S3_ACCESS_KEY: ${LIBRA_M05_S3_ACCESS:?Run check-media-m05.ps1}
+      MEDIA_S3_SECRET_KEY: ${LIBRA_M05_S3_SECRET:?Run check-media-m05.ps1}
+      MEDIA_SOURCE_BUCKET: libra-source
+      MEDIA_HLS_BUCKET: libra-hls
+      MEDIA_STAGING_PREFIX: staging/
+      MEDIA_FROZEN_PREFIX: sources/
+      MEDIA_HLS_PREFIX: hls/
+      MEDIA_S3_CONNECT_TIMEOUT: 3s
+      MEDIA_S3_REQUEST_TIMEOUT: 30s
+      MEDIA_MAX_OBJECT_BYTES: 268435456
+      MEDIA_SCRATCH_DIRECTORY: /tmp/media
+      MEDIA_S3_ALLOW_HTTP: true
+      MEDIA_STORAGE_INITIALIZE_BUCKETS: true
+      MEDIA_STORAGE_PROBE_ON_STARTUP: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=536870912,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      seaweedfs: { condition: service_started }

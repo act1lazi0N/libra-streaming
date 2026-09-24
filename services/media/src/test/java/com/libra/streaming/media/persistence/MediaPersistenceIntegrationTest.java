@@ -25,7 +25,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import static org.assertj.core.api.Assertions.*;
 
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(properties = "libra.media.storage.enabled=false")
 class MediaPersistenceIntegrationTest {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18.6-alpine")
             .withDatabaseName("media_upload_test").withUsername("media_upload_test").withPassword(UUID.randomUUID().toString());
