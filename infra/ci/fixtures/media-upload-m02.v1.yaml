@@ -1,0 +1,117 @@
+# Synthetic M02 contract cases. These are expected outcomes, not live HTTP results.
+cases:
+  - id: C01
+    contract: core
+    operationId: createMediaUpload
+    outcomes: [{ status: 403, code: ACCESS_DENIED }]
+    protectedEffect: none
+  - id: C02
+    contract: core
+    operationId: createMediaUpload
+    outcomes: [{ status: 401, code: AUTHENTICATION_REQUIRED }]
+    protectedEffect: none
+  - id: C03
+    contract: core
+    operationId: createMediaUpload
+    outcomes: [{ status: 403, code: ACCESS_DENIED }]
+    protectedEffect: none
+  - id: C04
+    contract: core
+    operationId: createMediaUpload
+    outcomes: [{ status: 409, code: VERSION_CONFLICT }]
+    protectedEffect: none
+  - id: C05
+    contract: core
+    operationId: createMediaUpload
+    outcomes: [{ status: 409, code: IDEMPOTENCY_CONFLICT }]
+    protectedEffect: original_intent_only
+  - id: C06
+    contract: core
+    operationId: createMediaUpload
+    outcomes: [{ status: 409, code: UPLOAD_NOT_ALLOWED }]
+    protectedEffect: none
+  - id: C07
+    contract: core
+    operationId: createMediaUpload
+    outcomes: [{ status: 503, code: MEDIA_UNAVAILABLE }]
+    protectedEffect: core_intent_and_binding_only_remote_uncertain
+  - id: C08
+    contract: core
+    operationId: issueMediaUploadUrl
+    outcomes: [{ status: 404, code: NOT_FOUND }, { status: 409, code: UPLOAD_STATE_CONFLICT }]
+    protectedEffect: none
+  - id: C09
+    contract: core
+    operationId: issueMediaUploadUrl
+    outcomes: [{ status: 410, code: UPLOAD_EXPIRED }]
+    protectedEffect: expiry_failure_transition_only
+  - id: C10
+    contract: core
+    operationId: completeMediaUpload
+    outcomes: [{ status: 409, code: SOURCE_MISSING }]
+    protectedEffect: none
+  - id: C11
+    contract: core
+    operationId: completeMediaUpload
+    outcomes: [{ status: 410, code: UPLOAD_EXPIRED }]
+    protectedEffect: expiry_failure_transition_only
+  - id: C12
+    contract: core
+    operationId: completeMediaUpload
+    outcomes: [{ status: 503, code: MEDIA_UNAVAILABLE }]
+    protectedEffect: remote_job_uncertain
+  - id: C13
+    contract: core
+    operationId: completeMediaUpload
+    outcomes: [{ status: 202, body: submitted_status }]
+    protectedEffect: original_job_only
+  - id: C14
+    contract: core
+    operationId: getMediaUpload
+    outcomes: [{ status: 503, code: MEDIA_UNAVAILABLE }]
+    protectedEffect: none
+  - id: C15
+    contract: core
+    operationId: getMediaUpload
+    outcomes: [{ status: 404, code: NOT_FOUND }]
+    protectedEffect: none
+  - id: C16
+    contract: core
+    operationId: createMediaUpload
+    outcomes: [{ status: 409, code: UPLOAD_STATE_CONFLICT }]
+    protectedEffect: original_intent_only
+  - id: M01
+    contract: media
+    operationId: ensureUpload
+    outcomes: [{ status: 401, code: AUTHENTICATION_REQUIRED }, { status: 403, code: ACCESS_DENIED }]
+    protectedEffect: none
+  - id: M02
+    contract: media
+    operationId: ensureUpload
+    outcomes: [{ status: 404, code: NOT_FOUND }, { status: 409, code: UPLOAD_STATE_CONFLICT }]
+    protectedEffect: none
+  - id: M03
+    contract: media
+    operationId: ensureUpload
+    outcomes: [{ status: 409, code: IDEMPOTENCY_CONFLICT }]
+    protectedEffect: original_session_only
+  - id: M04
+    contract: media
+    operationId: ensureUpload
+    outcomes: [{ status: 503, code: CORE_UNAVAILABLE }]
+    protectedEffect: none
+  - id: M05a
+    contract: media
+    operationId: issueUploadUrl
+    outcomes: [{ status: 503, code: CORE_UNAVAILABLE }]
+    protectedEffect: none
+  - id: M05b
+    contract: media
+    operationId: completeUpload
+    outcomes: [{ status: 503, code: CORE_UNAVAILABLE }]
+    protectedEffect: none
+  - id: M06
+    contract: media
+    operationId: completeUpload
+    outcomes: [{ status: 202, body: submitted_status }]
+    protectedEffect: original_job_only

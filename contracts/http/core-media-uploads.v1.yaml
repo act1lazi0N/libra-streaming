@@ -1,0 +1,234 @@
+openapi: 3.1.0
+info:
+  title: LIBRA Core administrator media uploads
+  version: 1.0.0
+  description: >-
+    M01 contract only; these routes are not implemented. Core owns administrator
+    authorization, catalog version, upload intent and candidate binding. A live
+    ADMIN cookie is required; every POST also needs the masked CSRF token and
+    matching cookie. Responses are no-store. Media readiness and publication
+    are separate; see docs/media-first-slice-contracts.md.
+servers:
+  - url: http://localhost:8081
+  - url: http://localhost:8080/api/core
+security:
+  - cookieAuth: []
+paths:
+  /v1/admin/catalog/{contentId}/uploads:
+    post:
+      operationId: createMediaUpload
+      summary: Reserve one upload intent and candidate binding for a draft movie or episode
+      x-required-role: ADMIN
+      x-requires-current-session: true
+      x-error-codes:
+        '400': [INVALID_REQUEST]
+        '401': [AUTHENTICATION_REQUIRED]
+        '403': [ACCESS_DENIED]
+        '404': [NOT_FOUND]
+        '409': [VERSION_CONFLICT, IDEMPOTENCY_CONFLICT, UPLOAD_NOT_ALLOWED, UPLOAD_STATE_CONFLICT]
+        '410': [UPLOAD_EXPIRED]
+        '503': [MEDIA_UNAVAILABLE]
+      parameters:
+        - $ref: '#/components/parameters/ContentId'
+        - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUpload' }
+      responses:
+        '201':
+          description: New durable intent and confirmed Media session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadStatus' }
+        '200':
+          description: Identical retry of an already confirmed intent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadStatus' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/admin/uploads/{uploadId}/upload-url:
+    post:
+      operationId: issueMediaUploadUrl
+      summary: Issue a short-lived PUT URL for the existing private staging object
+      x-required-role: ADMIN
+      x-requires-current-session: true
+      x-requires-upload-creator: true
+      x-error-codes:
+        '400': [INVALID_REQUEST]
+        '401': [AUTHENTICATION_REQUIRED]
+        '403': [ACCESS_DENIED]
+        '404': [NOT_FOUND]
+        '409': [UPLOAD_STATE_CONFLICT]
+        '410': [UPLOAD_EXPIRED]
+        '503': [MEDIA_UNAVAILABLE]
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Ephemeral credential; never cache, log or persist the URL
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadUrl' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/admin/uploads/{uploadId}/complete:
+    post:
+      operationId: completeMediaUpload
+      summary: Accept one durable processing job after staging object existence check
+      x-required-role: ADMIN
+      x-requires-current-session: true
+      x-requires-upload-creator: true
+      x-error-codes:
+        '400': [INVALID_REQUEST]
+        '401': [AUTHENTICATION_REQUIRED]
+        '403': [ACCESS_DENIED]
+        '404': [NOT_FOUND]
+        '409': [UPLOAD_STATE_CONFLICT, SOURCE_MISSING]
+        '410': [UPLOAD_EXPIRED]
+        '503': [MEDIA_UNAVAILABLE]
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '202':
+          description: One logical job, including repeated completion; never claims READY
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadStatus' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/admin/uploads/{uploadId}:
+    get:
+      operationId: getMediaUpload
+      summary: Read authoritative Media processing status for a Core-owned intent
+      x-required-role: ADMIN
+      x-requires-current-session: true
+      x-requires-upload-creator: true
+      x-error-codes:
+        '400': [INVALID_REQUEST]
+        '401': [AUTHENTICATION_REQUIRED]
+        '403': [ACCESS_DENIED]
+        '404': [NOT_FOUND]
+        '503': [MEDIA_UNAVAILABLE]
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      responses:
+        '200':
+          description: Current sanitized status; Media outage returns 503 instead
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadStatus' }
+        default: { $ref: '#/components/responses/Problem' }
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-LIBRA_ACCESS
+      description: Local loopback uses LIBRA_ACCESS. Must resolve to a current ADMIN account.
+  parameters:
+    ContentId:
+      name: contentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UploadId:
+      name: uploadId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Csrf:
+      name: X-CSRF-TOKEN
+      in: header
+      required: true
+      description: Masked token from /v1/auth/csrf, with its matching CSRF cookie.
+      schema: { type: string, minLength: 1 }
+  schemas:
+    CreateUpload:
+      type: object
+      additionalProperties: false
+      required: [requestId, expectedVersion, byteLength, sha256]
+      properties:
+        requestId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 1 }
+        byteLength: { type: integer, format: int64, minimum: 1, maximum: 268435456 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+    UploadStatus:
+      type: object
+      additionalProperties: false
+      required: [uploadId, contentId, bindingId, assetId, assetVersion, catalogVersionAtReservation, uploadState, assetState, jobId, attemptCount, failureCode, expiresAt]
+      properties:
+        uploadId: { type: string, format: uuid }
+        contentId: { type: string, format: uuid }
+        bindingId: { type: string, format: uuid }
+        assetId: { type: string, format: uuid }
+        assetVersion: { type: integer, format: int64, minimum: 1 }
+        catalogVersionAtReservation: { type: integer, format: int64, minimum: 1 }
+        uploadState: { type: string, enum: [OPEN, SUBMITTED, EXPIRED] }
+        assetState: { type: string, enum: [UPLOADING, QUEUED, PROCESSING, READY, FAILED] }
+        jobId: { type: [string, 'null'], format: uuid }
+        attemptCount: { type: integer, minimum: 0, maximum: 3 }
+        failureCode:
+          type: [string, 'null']
+          enum: [null, UPLOAD_EXPIRED, SOURCE_MISSING, SIZE_MISMATCH, CHECKSUM_MISMATCH, UNSUPPORTED_MEDIA, CORRUPT_INPUT, PROCESSING_FAILED, RETRY_EXHAUSTED]
+        expiresAt: { type: string, format: date-time }
+      allOf:
+        - if: { properties: { uploadState: { const: OPEN } } }
+          then:
+            properties:
+              assetState: { const: UPLOADING }
+              jobId: { type: 'null' }
+              attemptCount: { const: 0 }
+              failureCode: { type: 'null' }
+        - if: { properties: { uploadState: { const: SUBMITTED } } }
+          then:
+            properties:
+              assetState: { enum: [QUEUED, PROCESSING, READY, FAILED] }
+              jobId: { type: string, format: uuid }
+        - if: { properties: { uploadState: { const: EXPIRED } } }
+          then:
+            properties:
+              assetState: { const: FAILED }
+              jobId: { type: 'null' }
+              attemptCount: { const: 0 }
+              failureCode: { const: UPLOAD_EXPIRED }
+        - if: { properties: { assetState: { const: FAILED } } }
+          then:
+            properties:
+              failureCode: { type: string }
+        - if: { properties: { assetState: { const: READY } } }
+          then:
+            properties:
+              failureCode: { type: 'null' }
+    UploadUrl:
+      type: object
+      additionalProperties: false
+      required: [uploadId, method, url, expiresAt, requiredHeaders]
+      properties:
+        uploadId: { type: string, format: uuid }
+        method: { type: string, const: PUT }
+        url: { type: string, format: uri, pattern: '^https?://' }
+        expiresAt: { type: string, format: date-time }
+        requiredHeaders:
+          type: object
+          additionalProperties: false
+          required: [Content-Type]
+          properties:
+            Content-Type: { type: string, const: video/mp4 }
+    Problem:
+      $ref: './core-foundation.v1.yaml#/components/schemas/Problem'
+  responses:
+    Problem:
+      description: >-
+        Sanitized Problem Details. 400 INVALID_REQUEST; 401 AUTHENTICATION_REQUIRED;
+        403 ACCESS_DENIED or CSRF denial; 404 NOT_FOUND; 409 VERSION_CONFLICT,
+        IDEMPOTENCY_CONFLICT, UPLOAD_NOT_ALLOWED, UPLOAD_STATE_CONFLICT or SOURCE_MISSING;
+        410 UPLOAD_EXPIRED; 503 MEDIA_UNAVAILABLE. Denials disclose no signed URL,
+        object key, source bytes or internal exception.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
