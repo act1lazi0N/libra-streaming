@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import static com.libra.streaming.core.catalog.UploadIntentStore.UploadIntent;
 
-/** Local reservation only. A later milestone provisions Media after this transaction commits. */
+/** Commits the Core-owned candidate before any remote provisioning call. */
 @Service
 public class UploadIntentService {
     private final IdentityAccess access;
@@ -36,6 +36,12 @@ public class UploadIntentService {
     @Transactional
     public Reservation reserve(IdentityPrincipal actor, UUID contentId, UUID requestId,
             long expectedVersion, long byteLength, String sha256) {
+        return reserveDetailed(actor, contentId, requestId, expectedVersion, byteLength, sha256).reservation();
+    }
+
+    @Transactional
+    public Reserved reserveDetailed(IdentityPrincipal actor, UUID contentId, UUID requestId,
+            long expectedVersion, long byteLength, String sha256) {
         var current = access.lockCurrent(actor, true);
         if (contentId == null || requestId == null || expectedVersion <= 0 || expectedVersion == Long.MAX_VALUE
                 || byteLength < 1 || byteLength > 268435456 || sha256 == null
@@ -50,7 +56,7 @@ public class UploadIntentService {
             if (!existing.bindingId().equals(content.candidateBinding())) {
                 throw DomainException.conflict("UPLOAD_STATE_CONFLICT");
             }
-            return view(existing);
+            return new Reserved(view(existing), false);
         }
 
         var content = catalog.lock(contentId);
@@ -69,7 +75,7 @@ public class UploadIntentService {
                 assetId, 1, expectedVersion, expectedVersion + 1, byteLength, sha256,
                 fingerprint, now, now.plus(Duration.ofHours(1)));
         intents.insert(intent);
-        return view(intents.owned(current.accountId(), uploadId));
+        return new Reserved(view(intents.owned(current.accountId(), uploadId)), true);
     }
 
     @Transactional
@@ -77,6 +83,18 @@ public class UploadIntentService {
         var current = access.lockCurrent(actor, true);
         if (uploadId == null) { throw DomainException.invalid(); }
         return view(intents.owned(current.accountId(), uploadId));
+    }
+
+    @Transactional
+    public Reservation readCurrentCandidate(IdentityPrincipal actor, UUID uploadId) {
+        var current = access.lockCurrent(actor, true);
+        if (uploadId == null) { throw DomainException.invalid(); }
+        var intent = intents.owned(current.accountId(), uploadId);
+        var content = catalog.lock(intent.contentId());
+        if (!intent.bindingId().equals(content.candidateBinding())) {
+            throw DomainException.conflict("UPLOAD_STATE_CONFLICT");
+        }
+        return view(intent);
     }
 
     private static Reservation view(UploadIntent intent) {
@@ -98,4 +116,5 @@ public class UploadIntentService {
     public record Reservation(UUID uploadId, UUID requestId, UUID contentId, UUID bindingId,
             UUID assetId, long assetVersion, long catalogVersionAtReservation, long byteLength,
             String sha256, java.time.Instant createdAt, java.time.Instant expiresAt) {}
+    public record Reserved(Reservation reservation, boolean created) {}
 }

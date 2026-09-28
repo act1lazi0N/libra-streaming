@@ -31,6 +31,7 @@ public class MediaControlClient {
     public MediaControlClient(MediaControlProperties properties, MediaControlTokens tokens, ObjectMapper mapper, Validator validator) {
         this.properties = properties; this.tokens = tokens; this.validator = validator;
         this.mapper = mapper.rebuild().disable(tools.jackson.databind.MapperFeature.ALLOW_COERCION_OF_SCALARS)
+                .enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION)
                 .disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT)
                 .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)

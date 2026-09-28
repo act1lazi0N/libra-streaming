@@ -3,8 +3,8 @@ info:
   title: LIBRA Media private upload control
   version: 1.0.0
   description: >-
-    M07 implements the service security boundary; upload handlers remain planned.
-    The private Core service
+    M09 implements private ensure and status read; upload URL and completion
+    handlers remain planned. The private Core service
     JWT uses a dedicated RSA key, RS256 and configured kid; exact issuer
     libra-core-services, subject libra-core, sole audience libra-media-internal,
     purpose service-access, nonblank jti of at most 128 characters, iat and exp,

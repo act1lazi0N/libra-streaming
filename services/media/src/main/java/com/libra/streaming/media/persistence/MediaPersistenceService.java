@@ -12,7 +12,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Local database primitives only; no authenticated control endpoint or storage check exists yet. */
+/** Media-owned upload and asset records; HTTP callers verify Core's current binding first. */
 @Service
 public class MediaPersistenceService {
     private final MediaUploadStore store;
@@ -83,5 +83,5 @@ public class MediaPersistenceService {
 
     public record Snapshot(UUID uploadId, UUID requestId, UUID contentId, UUID bindingId, UUID assetId,
             long assetVersion, long byteLength, String sha256, String fingerprint,
-            String uploadState, String assetState, UUID jobId, Instant expiresAt) {}
+            String uploadState, String assetState, UUID jobId, int attemptCount, Instant expiresAt) {}
 }

@@ -38,6 +38,13 @@ public class CoreServiceSecurity {
                 // Only Authorization Bearer is accepted in this isolated chain, never browser cookies.
                 .csrf(csrf -> csrf.disable())
                 .oauth2ResourceServer(resource -> resource.bearerTokenResolver(request -> {
+                    var headers = request.getHeaders("Authorization");
+                    if (headers != null && headers.hasMoreElements()) {
+                        headers.nextElement();
+                        if (headers.hasMoreElements()) {
+                            throw new OAuth2AuthenticationException(new OAuth2Error("invalid_token"));
+                        }
+                    }
                     String value = resolver.resolve(request);
                     if (value != null && value.length() > 8192) {
                         throw new OAuth2AuthenticationException(new OAuth2Error("invalid_token"));

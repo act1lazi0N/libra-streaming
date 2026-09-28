@@ -82,12 +82,13 @@ class MediaUploadStore {
                 rs.getObject("content_id", UUID.class), rs.getObject("binding_id", UUID.class),
                 rs.getObject("asset_id", UUID.class), rs.getLong("asset_version"), rs.getLong("byte_length"),
                 rs.getString("expected_sha256"), rs.getString("request_fingerprint"), rs.getString("upload_state"),
-                rs.getString("asset_state"), rs.getObject("job_id", UUID.class),
+                rs.getString("asset_state"), rs.getObject("job_id", UUID.class), rs.getInt("attempt_count"),
                 rs.getTimestamp("expires_at").toInstant());
     }
 
     private static final String SELECT = """
-            SELECT u.*, u.state AS upload_state, a.state AS asset_state, j.id AS job_id
+            SELECT u.*, u.state AS upload_state, a.state AS asset_state, j.id AS job_id,
+                coalesce(j.attempt_count, 0) AS attempt_count
             FROM media_uploads u
             JOIN media_assets a ON a.asset_id = u.asset_id AND a.asset_version = u.asset_version
             LEFT JOIN media_jobs j ON j.upload_id = u.id

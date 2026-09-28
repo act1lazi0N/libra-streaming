@@ -14,6 +14,10 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.*;
 import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.*;
@@ -122,6 +126,90 @@ class MediaControlClientTest {
         finally { disabledClient.close(); }
         assertThatThrownBy(() -> client.ensure(upload, null, UUID.randomUUID())).isInstanceOf(IllegalArgumentException.class);
         assertThat(calls.get()).isZero();
+    }
+
+    @Test void saturationRejectsImmediatelyAndReleasesAllSlotsAfterCompletion() throws Exception {
+        var arrived = new CountDownLatch(16);
+        var release = new CountDownLatch(1);
+        responder = exchange -> {
+            arrived.countDown();
+            if (release.await(5, TimeUnit.SECONDS)) { respond(exchange, 200, "application/json", statusBody()); }
+        };
+        try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
+            var pending = new ArrayList<Future<Result>>();
+            try {
+                for (int i = 0; i < 16; i++) { pending.add(callers.submit(() -> client.read(upload, UUID.randomUUID()))); }
+                assertThat(arrived.await(1500, TimeUnit.MILLISECONDS)).isTrue();
+                long start = System.nanoTime();
+                assertThat(client.ensure(upload, intent, UUID.randomUUID()).failure()).isEqualTo(Failure.UNAVAILABLE);
+                assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(500));
+                assertThat(calls.get()).isEqualTo(16);
+            } finally { release.countDown(); }
+            for (var future : pending) { assertThat(future.get(4, TimeUnit.SECONDS).failure()).isNull(); }
+        }
+        responder = exchange -> respond(exchange, 200, "application/json", statusBody());
+        assertThat(client.read(upload, UUID.randomUUID()).failure()).isNull();
+        assertThat(calls.get()).isEqualTo(17);
+    }
+
+    @Test void interruptionCancelsRequestPreservesInterruptAndAllowsRecovery() throws Exception {
+        var arrived = new CountDownLatch(1);
+        responder = exchange -> { arrived.countDown(); Thread.sleep(10000); };
+        var result = new java.util.concurrent.atomic.AtomicReference<Result>();
+        var interrupted = new java.util.concurrent.atomic.AtomicBoolean();
+        Thread caller = Thread.ofVirtual().start(() -> {
+            result.set(client.ensure(upload, intent, UUID.randomUUID()));
+            interrupted.set(Thread.currentThread().isInterrupted());
+        });
+        try {
+            assertThat(arrived.await(1500, TimeUnit.MILLISECONDS)).isTrue();
+            caller.interrupt(); caller.join(3000);
+            assertThat(caller.isAlive()).isFalse();
+            assertThat(result.get().failure()).isEqualTo(Failure.UNAVAILABLE);
+            assertThat(interrupted.get()).isTrue();
+        } finally { caller.interrupt(); }
+        responder = exchange -> respond(exchange, 200, "application/json", statusBody());
+        assertThat(client.read(upload, UUID.randomUUID()).failure()).isNull();
+    }
+
+    @Test void rejectsDuplicateFieldsEncodedBodiesAndOversizedFixedLengthResponses() {
+        String duplicate = statusBody().replace("\"assetVersion\":1", "\"assetVersion\":2,\"assetVersion\":1");
+        responder = exchange -> respond(exchange, 200, "application/json", duplicate);
+        assertThat(client.read(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.INVALID_RESPONSE);
+        responder = exchange -> {
+            exchange.getResponseHeaders().add("Content-Encoding", "gzip");
+            respond(exchange, 200, "application/json", statusBody());
+        };
+        assertThat(client.read(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.INVALID_RESPONSE);
+        responder = exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, 65537);
+            try (var out = exchange.getResponseBody()) { out.write(new byte[65537]); }
+        };
+        assertThat(client.read(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.UNAVAILABLE);
+    }
+
+    @Test void connectionRefusalIsBoundedAndSanitized() {
+        server.stop(0);
+        long start = System.nanoTime();
+        Result result = client.ensure(upload, intent, UUID.randomUUID());
+        assertThat(result.failure()).isEqualTo(Failure.UNAVAILABLE);
+        assertThat(result.value()).isNull();
+        assertThat(result.toString()).doesNotContain("127.0.0.1", "http", "Exception");
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(4));
+        assertThat(calls.get()).isZero();
+    }
+
+    @Test void truncatedResponseAfterAcceptedWriteIsAnUncertainFailureWithoutApplicationReplay() {
+        responder = exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(201, 1024);
+            exchange.getResponseBody().write("{\"uploadId\":".getBytes(StandardCharsets.UTF_8));
+            exchange.close();
+        };
+        assertThat(client.ensure(upload, intent, UUID.randomUUID()).failure()).isEqualTo(Failure.UNAVAILABLE);
+        assertThat(calls.get()).isEqualTo(1);
+        assertThat(mapper.readTree(requestBody).path("bindingId").asString()).isEqualTo(intent.bindingId().toString());
     }
 
     String statusBody() {

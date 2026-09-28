@@ -35,6 +35,13 @@ logging:
     software.amazon.awssdk: OFF # SDK diagnostics can contain signed requests and remote error bodies.
 libra:
   media:
+    core-binding:
+      enabled: ${MEDIA_CORE_BINDING_ENABLED:false}
+      base-url: ${MEDIA_CORE_BINDING_BASE_URL:}
+      private-key: ${MEDIA_CORE_BINDING_PRIVATE_KEY:}
+      public-key: ${MEDIA_CORE_BINDING_PUBLIC_KEY:}
+      key-id: ${MEDIA_CORE_BINDING_KEY_ID:}
+      allow-http: ${MEDIA_CORE_BINDING_ALLOW_HTTP:false}
     core-service:
       enabled: ${MEDIA_CORE_SERVICE_AUTH_ENABLED:false}
       public-key: ${MEDIA_CORE_SERVICE_PUBLIC_KEY:}

@@ -4,7 +4,7 @@ package com.libra.streaming.media.persistence;
 public class MediaPersistenceException extends RuntimeException {
     private final String code;
 
-    MediaPersistenceException(String code) { super(code); this.code = code; }
+    public MediaPersistenceException(String code) { super(code); this.code = code; }
 
     public String code() { return code; }
 }

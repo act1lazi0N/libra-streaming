@@ -3,8 +3,9 @@ info:
   title: LIBRA Core administrator media uploads
   version: 1.0.0
   description: >-
-    M01 contract only; these routes are not implemented. Core owns administrator
-    authorization, catalog version, upload intent and candidate binding. A live
+    M09 implements create-upload and status read. Upload URL and completion routes
+    remain planned. Core owns administrator authorization, catalog version,
+    upload intent and candidate binding. A live
     ADMIN cookie is required; every POST also needs the masked CSRF token and
     matching cookie. Responses are no-store. Media readiness and publication
     are separate; see docs/media-first-slice-contracts.md.
@@ -113,6 +114,7 @@ paths:
         '401': [AUTHENTICATION_REQUIRED]
         '403': [ACCESS_DENIED]
         '404': [NOT_FOUND]
+        '409': [UPLOAD_STATE_CONFLICT]
         '503': [MEDIA_UNAVAILABLE]
       parameters:
         - $ref: '#/components/parameters/UploadId'

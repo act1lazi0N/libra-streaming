@@ -99,17 +99,18 @@ HTTP fixture, including read/write credentials, errors, slow headers/bodies,
 oversized chunked bodies, redirects and invalid responses. Its downstream
 responses are synthetic; they are not Media persistence evidence.
 
-`CoreServiceSecurityTest` runs the real Media application configuration, Spring
+The original M07 `CoreServiceSecurityTest` ran the real Media application configuration, Spring
 MVC and production security filters. Test-only operation probes demonstrate
 authorized handler dispatch and zero handler calls for denied requests. H2 is
 used only for unrelated application wiring, with storage and migrations disabled.
-This test does not claim PostgreSQL mutation, candidate verification or a live
-Core-to-Media upload workflow.
+M08 replaces that suite with PostgreSQL-backed `CoreServiceSecurityIntegrationTest`.
+See [M08 hardening](media-auth-transport-m08.md) for current commands and evidence
+boundaries. Neither milestone claims a live Core-to-Media upload workflow.
 
 Run the focused gate with Java 21:
 
 ```powershell
-.\mvnw.cmd -B -ntp -pl services/core,services/media '-Dtest=MediaControl*Test,CoreServiceSecurityTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+.\mvnw.cmd -B -ntp -pl services/core,services/media '-Dtest=MediaControl*Test' '-Dsurefire.failIfNoSpecifiedTests=false' '-Dit.test=CoreServiceSecurityIntegrationTest' '-Dfailsafe.failIfNoSpecifiedTests=false' verify
 pwsh -NoProfile -File infra/smoke/check-media-m07.ps1
 ```
 
@@ -126,6 +127,6 @@ regression evidence. Contract validation uses `infra/ci/check_contracts.py` with
 the packages in `infra/ci/requirements.txt`. Current dated counts and remaining
 boundaries are recorded in the private Media roadmap completion entry.
 
-M08 remains the next dedicated hardening gate. Upload handlers, end-to-end admin
-revocation/CSRF side-effect tests, storage grants, workers, HLS, Kafka publication,
-production TLS and deployment are not delivered by M07.
+M08 adds dedicated authentication/transport hardening and PostgreSQL security
+probes. Upload handlers, end-to-end orchestration, storage grants, workers, HLS,
+Kafka publication, production TLS and deployment remain outside M07/M08.
