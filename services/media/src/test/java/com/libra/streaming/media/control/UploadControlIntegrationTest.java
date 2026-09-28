@@ -138,6 +138,23 @@ class UploadControlIntegrationTest {
         assertThat(count("media_jobs")).isZero();
     }
 
+    @Test void uploadUrlRequiresWriteScopeAndCurrentCandidateBeforeStorageAccess() throws Exception {
+        ensure(body(command.byteLength()));
+        String path = "/internal/v1/uploads/" + command.uploadId() + "/upload-url";
+        mvc.perform(post(path)).andExpect(status().isUnauthorized());
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:read")))
+                .andExpect(status().isForbidden());
+        candidate = false;
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isNotFound());
+        candidate = true;
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("STORAGE_UNAVAILABLE"));
+        assertThat(count("media_uploads")).isEqualTo(1);
+        assertThat(count("media_jobs")).isZero();
+    }
+
     @Test void simultaneousChangedFingerprintConflictsWithoutDuplicateAsset() throws Exception {
         var results = race(() -> ensure(body(1024)), () -> ensure(body(2048)));
         assertThat(results).extracting(result -> result.getResponse().getStatus())

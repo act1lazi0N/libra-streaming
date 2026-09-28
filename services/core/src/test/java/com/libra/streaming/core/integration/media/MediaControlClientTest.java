@@ -71,6 +71,25 @@ class MediaControlClientTest {
         assertThat(calls.get()).isEqualTo(2);
     }
 
+    @Test void issueUrlUsesWriteScopeAndRejectsMalformedRemoteGrant() throws Exception {
+        String signed = "http://127.0.0.1:8333/libra-source/staging/" + upload + "/source.mp4?signature=private-canary";
+        var grant = new UploadUrl(upload, "PUT", signed, Instant.now().plusSeconds(600),
+                java.util.Map.of("Content-Type", "video/mp4", "x-amz-checksum-sha256", "a".repeat(44)));
+        responder = exchange -> respond(exchange, 200, "application/json", mapper.writeValueAsString(grant));
+        var result = client.issueUrl(upload, UUID.randomUUID());
+        assertThat(result.failure()).isNull();
+        assertThat(result.value().url()).isEqualTo(signed);
+        assertThat(result.value().toString()).doesNotContain("private-canary");
+        assertThat(method).isEqualTo("POST");
+        assertThat(cookie).isNull();
+        assertThat(SignedJWT.parse(authorization.substring(7)).getJWTClaimsSet().getStringClaim("scope"))
+                .isEqualTo("core.media.uploads:write");
+        responder = exchange -> respond(exchange, 200, "application/json",
+                mapper.writeValueAsString(new UploadUrl(UUID.randomUUID(), "PUT", signed,
+                        Instant.now().plusSeconds(600), grant.requiredHeaders())));
+        assertThat(client.issueUrl(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.INVALID_RESPONSE);
+    }
+
     @Test void translatesRemoteFailuresWithoutRetryOrBodyDisclosure() {
         int[] statuses = {401, 403, 404, 409, 410, 500, 503};
         Failure[] failures = {Failure.ACCESS_DENIED, Failure.ACCESS_DENIED, Failure.NOT_FOUND, Failure.CONFLICT,

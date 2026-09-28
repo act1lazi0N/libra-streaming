@@ -25,7 +25,8 @@ public class UploadControlProblems {
             case "UPLOAD_EXPIRED" -> HttpStatus.GONE;
             default -> HttpStatus.SERVICE_UNAVAILABLE;
         };
-        return response(status, status == HttpStatus.SERVICE_UNAVAILABLE ? "CORE_UNAVAILABLE" : code);
+        return response(status, status == HttpStatus.SERVICE_UNAVAILABLE
+                && !"STORAGE_UNAVAILABLE".equals(code) ? "CORE_UNAVAILABLE" : code);
     }
 
     private static ResponseEntity<ProblemDetail> response(HttpStatus status, String code) {

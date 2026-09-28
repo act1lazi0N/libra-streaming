@@ -58,6 +58,18 @@ public class MediaPersistenceService {
         return result;
     }
 
+    @Transactional(readOnly = true)
+    public GrantSource grantSource(UUID uploadId) {
+        Snapshot current = read(uploadId);
+        if (!current.uploadState().equals("OPEN") || !current.assetState().equals("UPLOADING")) {
+            throw new MediaPersistenceException("UPLOAD_STATE_CONFLICT");
+        }
+        if (!current.expiresAt().isAfter(clock.instant())) {
+            throw new MediaPersistenceException("UPLOAD_EXPIRED");
+        }
+        return new GrantSource(current, store.stagingKey(uploadId));
+    }
+
     private static void validate(Ensure input) {
         if (input == null || input.uploadId() == null || input.requestId() == null || input.contentId() == null
                 || input.bindingId() == null || input.assetId() == null || input.assetVersion() < 1
@@ -84,4 +96,5 @@ public class MediaPersistenceService {
     public record Snapshot(UUID uploadId, UUID requestId, UUID contentId, UUID bindingId, UUID assetId,
             long assetVersion, long byteLength, String sha256, String fingerprint,
             String uploadState, String assetState, UUID jobId, int attemptCount, Instant expiresAt) {}
+    public record GrantSource(Snapshot snapshot, String stagingKey) {}
 }

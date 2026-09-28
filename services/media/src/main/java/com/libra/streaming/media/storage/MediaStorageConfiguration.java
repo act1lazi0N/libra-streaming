@@ -12,6 +12,8 @@ import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 @Configuration
 @ConditionalOnProperty(prefix = "libra.media.storage", name = "enabled", havingValue = "true", matchIfMissing = true)
@@ -35,6 +37,22 @@ class MediaStorageConfiguration {
                 .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
                 .forcePathStyle(true)
                 .build();
+    }
+
+    @Bean(destroyMethod = "close")
+    S3Presigner mediaS3Presigner(MediaStorageProperties properties) {
+        return S3Presigner.builder()
+                .endpointOverride(properties.browserEndpointUri())
+                .region(Region.of(properties.region()))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(properties.accessKey(), properties.secretKey())))
+                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
+                .build();
+    }
+
+    @Bean
+    StagingUploadSigner stagingUploadSigner(S3Presigner presigner, MediaStorageProperties properties) {
+        return new StagingUploadSigner(presigner, properties);
     }
 
     @Bean

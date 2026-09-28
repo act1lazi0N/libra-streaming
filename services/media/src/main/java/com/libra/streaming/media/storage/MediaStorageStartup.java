@@ -53,7 +53,7 @@ final class MediaStorageStartup implements ApplicationRunner {
                 .corsConfiguration(CORSConfiguration.builder().corsRules(CORSRule.builder()
                         .allowedOrigins(properties.browserOrigin())
                         .allowedMethods("PUT", "HEAD")
-                        .allowedHeaders("Content-Type")
+                        .allowedHeaders("Content-Type", "x-amz-checksum-sha256")
                         .maxAgeSeconds(300)
                         .build()).build()).build());
         LOG.info("MEDIA_STORAGE_INITIALIZATION_PASS");

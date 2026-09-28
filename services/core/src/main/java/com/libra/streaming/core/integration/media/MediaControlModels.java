@@ -2,6 +2,7 @@ package com.libra.streaming.core.integration.media;
 
 import jakarta.validation.constraints.*;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 public final class MediaControlModels {
@@ -37,5 +38,12 @@ public final class MediaControlModels {
     public enum Failure { DISABLED, UNAVAILABLE, INVALID_RESPONSE, NOT_FOUND, CONFLICT, EXPIRED, ACCESS_DENIED }
     public record Result(Status value, Failure failure) {
         static Result failed(Failure failure) { return new Result(null, failure); }
+    }
+    public record UploadUrl(@NotNull UUID uploadId, @NotNull String method, @NotNull String url,
+            @NotNull Instant expiresAt, @NotNull Map<String, String> requiredHeaders) {
+        @Override public String toString() { return "UploadUrl[uploadId=" + uploadId + ", url=REDACTED]"; }
+    }
+    public record GrantResult(UploadUrl value, Failure failure) {
+        static GrantResult failed(Failure failure) { return new GrantResult(null, failure); }
     }
 }

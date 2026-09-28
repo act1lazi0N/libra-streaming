@@ -6,6 +6,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,12 +15,24 @@ import static com.libra.streaming.media.persistence.MediaPersistenceService.Snap
 @Repository
 class MediaUploadStore {
     private final JdbcTemplate jdbc;
+    private final String stagingPrefix;
 
-    MediaUploadStore(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    MediaUploadStore(JdbcTemplate jdbc, @Value("${libra.media.storage.staging-prefix}") String stagingPrefix) {
+        this.jdbc = jdbc;
+        if (stagingPrefix == null || !stagingPrefix.matches("[a-z0-9][a-z0-9/_-]*/")
+                || stagingPrefix.contains("//")) { throw new IllegalArgumentException("Invalid staging prefix"); }
+        this.stagingPrefix = stagingPrefix;
+    }
 
     Snapshot find(UUID uploadId) {
         return jdbc.query(SELECT + " WHERE u.id = ?", (rs, row) -> map(rs), uploadId)
                 .stream().findFirst().orElse(null);
+    }
+
+    String stagingKey(UUID uploadId) {
+        return jdbc.query("SELECT staging_key FROM media_uploads WHERE id = ?",
+                (rs, row) -> rs.getString(1), uploadId).stream().findFirst()
+                .orElseThrow(() -> new MediaPersistenceException("NOT_FOUND"));
     }
 
     Snapshot lock(UUID uploadId) {
@@ -47,7 +60,7 @@ class MediaUploadStore {
                 ON CONFLICT DO NOTHING
                 """, input.uploadId(), input.requestId(), input.contentId(), input.bindingId(), input.assetId(),
                 input.assetVersion(), input.byteLength(), input.sha256(), fingerprint,
-                "staging/" + input.uploadId() + "/source.mp4", Timestamp.from(now), Timestamp.from(now),
+                stagingPrefix + input.uploadId() + "/source.mp4", Timestamp.from(now), Timestamp.from(now),
                 Timestamp.from(input.expiresAt()));
     }
 

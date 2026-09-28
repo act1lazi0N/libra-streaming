@@ -3,8 +3,8 @@ info:
   title: LIBRA Media private upload control
   version: 1.0.0
   description: >-
-    M09 implements private ensure and status read; upload URL and completion
-    handlers remain planned. The private Core service
+    M11 implements private ensure, status read and signed upload URL issuance;
+    completion remains planned. The private Core service
     JWT uses a dedicated RSA key, RS256 and configured kid; exact issuer
     libra-core-services, subject libra-core, sole audience libra-media-internal,
     purpose service-access, nonblank jti of at most 128 characters, iat and exp,
@@ -216,9 +216,10 @@ components:
         requiredHeaders:
           type: object
           additionalProperties: false
-          required: [Content-Type]
+          required: [Content-Type, x-amz-checksum-sha256]
           properties:
             Content-Type: { type: string, const: video/mp4 }
+            x-amz-checksum-sha256: { type: string, minLength: 44, maxLength: 44 }
     Problem:
       $ref: './core-foundation.v1.yaml#/components/schemas/Problem'
   responses:

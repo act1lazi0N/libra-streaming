@@ -1,0 +1,47 @@
+name: libra-media-m11-smoke
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LIBRA_M11_POSTGRES_PASSWORD:?Set disposable smoke password}
+    ports:
+      - "127.0.0.1::5432"
+    volumes:
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.46
+    entrypoint: ["/bin/sh", "/etc/libra/start-private.sh"]
+    environment:
+      MEDIA_STORAGE_ACCESS_KEY: ${LIBRA_M11_S3_ACCESS_KEY:?Set disposable access key}
+      MEDIA_STORAGE_SECRET_KEY: ${LIBRA_M11_S3_SECRET_KEY:?Set disposable secret key}
+      S3_BUCKET: libra-source,libra-hls
+    volumes:
+      - ../seaweedfs/start-private.sh:/etc/libra/start-private.sh:ro
+    tmpfs:
+      - /run/media-secrets:rw,nosuid,noexec,size=1m,mode=0700
+    networks: [storage-private]
+  s3-gateway-internal:
+    image: nginx:1.29.3-alpine
+    ports:
+      - "127.0.0.1::8333"
+    volumes:
+      - ../nginx/s3-gateway.conf:/etc/nginx/nginx.conf:ro
+    networks: [default, storage-private]
+    depends_on: [seaweedfs]
+  s3-gateway-browser:
+    image: nginx:1.29.3-alpine
+    ports:
+      - "127.0.0.1::8333"
+    volumes:
+      - ../nginx/s3-gateway.conf:/etc/nginx/nginx.conf:ro
+    networks: [default, storage-private]
+    depends_on: [seaweedfs]
+networks:
+  storage-private:
+    internal: true

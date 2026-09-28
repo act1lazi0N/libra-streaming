@@ -64,6 +64,7 @@ public record MediaStorageProperties(String internalEndpoint, String browserEndp
     }
 
     public URI internalEndpointUri() { return URI.create(internalEndpoint); }
+    public URI browserEndpointUri() { return URI.create(browserEndpoint); }
 
     private static void origin(String configured, boolean allowHttp) {
         URI value = endpoint(configured, allowHttp, "browser origin");

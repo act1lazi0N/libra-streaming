@@ -56,7 +56,7 @@ libra:
       secret-key: ${MEDIA_S3_SECRET_KEY:}
       source-bucket: ${MEDIA_SOURCE_BUCKET:}
       hls-bucket: ${MEDIA_HLS_BUCKET:}
-      staging-prefix: ${MEDIA_STAGING_PREFIX:}
+      staging-prefix: ${MEDIA_STAGING_PREFIX:staging/}
       source-prefix: ${MEDIA_FROZEN_PREFIX:}
       hls-prefix: ${MEDIA_HLS_PREFIX:}
       connect-timeout: ${MEDIA_S3_CONNECT_TIMEOUT:}

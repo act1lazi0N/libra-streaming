@@ -48,6 +48,60 @@ public class MediaControlClient {
         return exchange(uploadId, intent, correlationId);
     }
 
+    public GrantResult issueUrl(UUID uploadId, UUID correlationId) {
+        if (uploadId == null || correlationId == null) { throw new IllegalArgumentException("Operation identity is required"); }
+        if (!properties.enabled()) { return GrantResult.failed(Failure.DISABLED); }
+        if (!inFlight.tryAcquire()) { return GrantResult.failed(Failure.UNAVAILABLE); }
+        long deadline = System.nanoTime() + BUDGET.toNanos();
+        CompletableFuture<HttpResponse<byte[]>> pending = null;
+        try {
+            var request = HttpRequest.newBuilder(properties.origin().resolve(
+                    "/internal/v1/uploads/" + uploadId + "/upload-url"))
+                    .timeout(BUDGET).header("Authorization", "Bearer " + tokens.issue(Scope.WRITE))
+                    .header("Accept", "application/json").header("X-Correlation-ID", correlationId.toString())
+                    .POST(HttpRequest.BodyPublishers.noBody()).build();
+            pending = http.sendAsync(request, ignored -> new LimitedMediaBodySubscriber());
+            var response = pending.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            if (response.statusCode() != 200) {
+                return GrantResult.failed(switch (response.statusCode()) {
+                    case 404 -> Failure.NOT_FOUND;
+                    case 409 -> Failure.CONFLICT;
+                    case 410 -> Failure.EXPIRED;
+                    default -> Failure.UNAVAILABLE;
+                });
+            }
+            String type = response.headers().firstValue("Content-Type").orElse("").split(";", 2)[0].trim();
+            if (!type.equalsIgnoreCase("application/json") || response.headers().firstValue("Content-Encoding")
+                    .filter(value -> !value.equalsIgnoreCase("identity")).isPresent()) {
+                return GrantResult.failed(Failure.INVALID_RESPONSE);
+            }
+            UploadUrl value = mapper.readValue(response.body(), UploadUrl.class);
+            if (value == null || !validator.validate(value).isEmpty() || !uploadId.equals(value.uploadId())
+                    || !"PUT".equals(value.method()) || value.url().length() > 4096
+                    || !value.requiredHeaders().containsKey("content-type")
+                    && !value.requiredHeaders().containsKey("Content-Type")) {
+                return GrantResult.failed(Failure.INVALID_RESPONSE);
+            }
+            URI uri = URI.create(value.url());
+            if (uri.getHost() == null || uri.getUserInfo() != null || uri.getFragment() != null
+                    || !("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))
+                    || deadline <= System.nanoTime()) {
+                return GrantResult.failed(Failure.INVALID_RESPONSE);
+            }
+            return new GrantResult(value, null);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return GrantResult.failed(Failure.UNAVAILABLE);
+        } catch (TimeoutException | ExecutionException exception) {
+            return GrantResult.failed(Failure.UNAVAILABLE);
+        } catch (RuntimeException exception) {
+            return GrantResult.failed(Failure.INVALID_RESPONSE);
+        } finally {
+            if (pending != null && !pending.isDone()) { pending.cancel(true); }
+            inFlight.release();
+        }
+    }
+
     private Result exchange(UUID uploadId, EnsureUpload intent, UUID correlationId) {
         if (uploadId == null || correlationId == null) { throw new IllegalArgumentException("Operation identity is required"); }
         if (!properties.enabled()) { return Result.failed(Failure.DISABLED); }

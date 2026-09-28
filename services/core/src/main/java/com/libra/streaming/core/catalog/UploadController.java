@@ -38,6 +38,14 @@ public class UploadController {
                 .body(uploads.read(actor, uploadId, correlationId));
     }
 
+    @PostMapping("/uploads/{uploadId}/upload-url")
+    ResponseEntity<com.libra.streaming.core.integration.media.MediaControlModels.UploadUrl> issueUrl(
+            @AuthenticationPrincipal IdentityPrincipal actor, @PathVariable UUID uploadId,
+            @RequestAttribute(CorrelationIdFilter.ATTRIBUTE) UUID correlationId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(uploads.issueUrl(actor, uploadId, correlationId));
+    }
+
     record CreateUpload(@NotNull UUID requestId, @Min(1) long expectedVersion,
             @Min(1) @Max(268435456) long byteLength,
             @NotNull @Pattern(regexp = "[a-f0-9]{64}") String sha256) {}

@@ -8,6 +8,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import org.testcontainers.images.builder.Transferable;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -201,5 +204,37 @@ class MediaStorageIntegrationTest {
             if (downloaded != null) { Files.deleteIfExists(downloaded); }
         }
         assertThat(storage.head(S3MediaStorage.Area.SOURCE, key)).isEmpty();
+    }
+
+    @Test
+    void signedBrowserPutWritesOnlyTheStagingObject() throws Exception {
+        byte[] clip = "synthetic-mp4-upload-fixture".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(clip));
+        UUID uploadId = UUID.randomUUID();
+        String key = "staging/" + uploadId + "/source.mp4";
+        var properties = new MediaStorageProperties(configured.internalEndpoint(),
+                configured.internalEndpoint(), configured.browserOrigin(), configured.region(),
+                configured.accessKey(), configured.secretKey(), configured.sourceBucket(), configured.hlsBucket(),
+                configured.stagingPrefix(), configured.sourcePrefix(), configured.hlsPrefix(),
+                configured.connectTimeout(), configured.requestTimeout(), configured.maxObjectBytes(),
+                configured.scratchDirectory(), true, false, false);
+        try (var presigner = new MediaStorageConfiguration().mediaS3Presigner(properties);
+                var http = HttpClient.newHttpClient()) {
+            var grant = new StagingUploadSigner(presigner, properties).sign(uploadId, key, clip.length,
+                    digest, Instant.now().plusSeconds(3600), Instant.now());
+            assertThat(grant.expiresAt()).isBefore(Instant.now().plusSeconds(901));
+            assertThat(grant.requiredHeaders()).containsEntry("Content-Type", "video/mp4")
+                    .containsEntry("x-amz-checksum-sha256",
+                            java.util.Base64.getEncoder().encodeToString(HexFormat.of().parseHex(digest)))
+                    .doesNotContainKey("content-length");
+            var builder = HttpRequest.newBuilder(URI.create(grant.url()));
+            grant.requiredHeaders().forEach(builder::header);
+            var put = http.send(builder.PUT(HttpRequest.BodyPublishers.ofByteArray(clip)).build(),
+                    HttpResponse.BodyHandlers.discarding());
+            assertThat(put.statusCode()).isEqualTo(200);
+            assertThat(storage.head(S3MediaStorage.Area.STAGING, key).orElseThrow().length())
+                    .isEqualTo((long) clip.length);
+            storage.delete(S3MediaStorage.Area.STAGING, key);
+        }
     }
 }

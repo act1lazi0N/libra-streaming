@@ -3,8 +3,8 @@ info:
   title: LIBRA Core administrator media uploads
   version: 1.0.0
   description: >-
-    M09 implements create-upload and status read. Upload URL and completion routes
-    remain planned. Core owns administrator authorization, catalog version,
+    M11 implements create-upload, status read and signed upload URL issuance.
+    Completion remains planned. Core owns administrator authorization, catalog version,
     upload intent and candidate binding. A live
     ADMIN cookie is required; every POST also needs the masked CSRF token and
     matching cookie. Responses are no-store. Media readiness and publication
@@ -218,9 +218,10 @@ components:
         requiredHeaders:
           type: object
           additionalProperties: false
-          required: [Content-Type]
+          required: [Content-Type, x-amz-checksum-sha256]
           properties:
             Content-Type: { type: string, const: video/mp4 }
+            x-amz-checksum-sha256: { type: string, minLength: 44, maxLength: 44 }
     Problem:
       $ref: './core-foundation.v1.yaml#/components/schemas/Problem'
   responses:

@@ -248,14 +248,19 @@ class UploadProvisioningIntegrationTest {
         var other = new IdentityPrincipal(foreignAccount, foreignSession, "ADMIN", false);
         assertThatThrownBy(() -> uploads.read(other, created.uploadId(), correlation))
                 .isInstanceOf(DomainException.class).hasMessage("NOT_FOUND");
+        assertThatThrownBy(() -> uploads.issueUrl(other, created.uploadId(), correlation))
+                .isInstanceOf(DomainException.class).hasMessage("NOT_FOUND");
         jdbc.update("UPDATE identity_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", admin.sessionId());
         assertThatThrownBy(() -> uploads.read(admin, created.uploadId(), correlation))
+                .hasMessage("INVALID_CREDENTIALS");
+        assertThatThrownBy(() -> uploads.issueUrl(admin, created.uploadId(), correlation))
                 .hasMessage("INVALID_CREDENTIALS");
         assertThatThrownBy(() -> uploads.create(admin, movie.id(), new UploadProvisioningService.Create(
                 UUID.randomUUID(), movie.version(), 1024, "6".repeat(64)), correlation))
                 .hasMessage("INVALID_CREDENTIALS");
         verify(media, times(1)).ensure(any(), any(), eq(correlation));
         verify(media, never()).read(any(), any());
+        verify(media, never()).issueUrl(any(), any());
     }
 
     private Object outcome(UploadProvisioningService.Create command, UUID correlation) {
