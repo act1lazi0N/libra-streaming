@@ -53,13 +53,14 @@ def main():
     parser.add_argument("--browser-port", type=int, required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--compose-file", required=True)
+    parser.add_argument("--scenario", choices=("M11", "M12"), default="M11")
     args = parser.parse_args()
     require(re.fullmatch(r"libra-m11-[a-f0-9]{12}", args.project), "Expected isolated project")
     require(Path(args.compose_file).resolve() == ROOT / "infra/smoke/compose.media-m11.yaml",
             "Unexpected Compose file")
     for value in (args.core_url, args.media_url):
         require(re.fullmatch(r"http://127\.0\.0\.1:[0-9]+", value), "Service must bind loopback")
-    evidence = ROOT / "target/verification/media-m11.json"
+    evidence = ROOT / f"target/verification/media-{args.scenario.lower()}.json"
     evidence.unlink(missing_ok=True)
     compose = ["docker", "compose", "--project-name", args.project, "--file", args.compose_file]
 
@@ -118,10 +119,11 @@ def main():
 
     class Page(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path != "/":
+            if self.path not in ("/", "/tampered"):
                 self.send_error(404)
                 return
-            body = page.encode()
+            body = (page if self.path == "/" else page.replace("const raw =",
+                    "grant.requiredHeaders['Content-Type'] = 'text/plain'; const raw =")).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -140,13 +142,18 @@ def main():
     if profile.exists():
         shutil.rmtree(profile)
     try:
-        result = subprocess.run([str(chrome), "--headless=new", "--disable-gpu", "--no-first-run",
+        cases = [(f"http://127.0.0.1:{args.browser_port}/", "ok")]
+        if args.scenario == "M12":
+            cases.extend([(f"http://localhost:{args.browser_port}/", "error"),
+                          (f"http://127.0.0.1:{args.browser_port}/tampered", "error")])
+        for page_url, expected in cases:
+            result = subprocess.run([str(chrome), "--headless=new", "--disable-gpu", "--no-first-run",
                                  "--no-default-browser-check", "--virtual-time-budget=12000",
                                  "--user-data-dir=" + str(profile), "--dump-dom",
-                                 f"http://127.0.0.1:{args.browser_port}/"],
+                                 page_url],
                                 capture_output=True, timeout=45)
-        require(result.returncode == 0 and b'data-result="ok"' in result.stdout,
-                "Chromium preflight or signed PUT failed")
+            require(result.returncode == 0 and f'data-result="{expected}"'.encode() in result.stdout,
+                    "Chromium upload authorization outcome differed")
     finally:
         server.shutdown()
         for _ in range(5):
@@ -165,16 +172,20 @@ def main():
     require(sql("libra_core", "SELECT count(*) FROM catalog_upload_intents") == "1", "Core intent count")
     require(sql("libra_media", "SELECT count(*) FROM media_uploads") == "1", "Media upload count")
     require(sql("libra_media", "SELECT count(*) FROM media_jobs") == "0", "Unexpected Media job")
+    hardening = []
+    if args.scenario == "M12":
+        from media_m12_http import check_hardening
+        hardening = check_hardening(admin, upload_path, movie, upload_id, grant, clip, sql)
     evidence.parent.mkdir(parents=True, exist_ok=True)
     evidence.write_text(json.dumps({
-        "result": "MEDIA_M11_SMOKE_PASS", "checkedAt": datetime.now(timezone.utc).isoformat(),
+        "result": f"MEDIA_{args.scenario}_SMOKE_PASS", "checkedAt": datetime.now(timezone.utc).isoformat(),
         "browser": "Google Chrome headless", "clipBytes": len(clip),
         "checks": ["Live ADMIN/CSRF grant through Core and Media",
                    "Different internal and browser S3 endpoints",
                    "Real Chromium CORS preflight and direct signed PUT to SeaweedFS 4.46",
-                   "No job, active asset or publication after PUT"]
+                   "No job, active asset or publication after PUT"] + hardening
     }, indent=2) + "\n", encoding="utf-8")
-    print("MEDIA_M11_SMOKE_PASS", flush=True)
+    print(f"MEDIA_{args.scenario}_SMOKE_PASS", flush=True)
 
 
 if __name__ == "__main__":

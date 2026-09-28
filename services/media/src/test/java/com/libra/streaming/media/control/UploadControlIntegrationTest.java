@@ -166,6 +166,21 @@ class UploadControlIntegrationTest {
         assertThat(count("media_assets")).isEqualTo(1);
     }
 
+    @Test void expiredAndSubmittedSessionsCannotIssueAnotherCapability() throws Exception {
+        assertThat(ensure(body(command.byteLength())).getResponse().getStatus()).isEqualTo(201);
+        String path = "/internal/v1/uploads/" + command.uploadId() + "/upload-url";
+        jdbc.update("UPDATE media_uploads SET state = 'SUBMITTED' WHERE id = ?", command.uploadId());
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("UPLOAD_STATE_CONFLICT"));
+        jdbc.update("UPDATE media_uploads SET state = 'OPEN', created_at = now() - interval '2 hours', "
+                + "expires_at = now() - interval '1 hour' WHERE id = ?", command.uploadId());
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isGone()).andExpect(jsonPath("$.code").value("UPLOAD_EXPIRED"));
+        assertThat(BINDING_READS.get()).isEqualTo(1);
+        assertThat(count("media_jobs")).isZero();
+        assertThat(count("media_outbox_events")).isZero();
+    }
+
     private String body(long byteLength) throws Exception {
         return mapper.writeValueAsString(new UploadControlController.EnsureUpload(command.requestId(),
                 command.contentId(), command.bindingId(), command.assetId(), command.assetVersion(),

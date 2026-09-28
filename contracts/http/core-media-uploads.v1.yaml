@@ -53,6 +53,11 @@ paths:
     post:
       operationId: issueMediaUploadUrl
       summary: Issue a short-lived PUT URL for the existing private staging object
+      description: >-
+        A reusable capability bound to the staging key, exact declared byte length,
+        video/mp4 and SHA-256 checksum. It grants no read or list authority.
+        Expiry rejects new requests but does not cancel an already admitted write;
+        staging must not be treated as immutable or ready for processing.
       x-required-role: ADMIN
       x-requires-current-session: true
       x-requires-upload-creator: true

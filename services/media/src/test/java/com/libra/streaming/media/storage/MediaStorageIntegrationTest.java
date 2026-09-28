@@ -172,7 +172,7 @@ class MediaStorageIntegrationTest {
     }
 
     private MediaStorageProperties settings(URI endpoint, String access, String secret) {
-        return new MediaStorageProperties(endpoint.toString(), configured.browserEndpoint(), configured.browserOrigin(),
+        return new MediaStorageProperties(endpoint.toString(), endpoint.toString(), configured.browserOrigin(),
                 configured.region(), access, secret, configured.sourceBucket(), configured.hlsBucket(),
                 configured.stagingPrefix(), configured.sourcePrefix(), configured.hlsPrefix(),
                 Duration.ofSeconds(1), Duration.ofSeconds(2), configured.maxObjectBytes(),
@@ -236,5 +236,131 @@ class MediaStorageIntegrationTest {
                     .isEqualTo((long) clip.length);
             storage.delete(S3MediaStorage.Area.STAGING, key);
         }
+    }
+
+    @Test
+    void signedCapabilityRejectsTamperingAndAllowsOnlyIdenticalStagingReplay() throws Exception {
+        byte[] bytes = "bounded-staging-fixture".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        UUID id = UUID.randomUUID();
+        String key = "staging/" + id + "/source.mp4";
+        var properties = settings(configured.internalEndpointUri(), ACCESS, SECRET);
+        try (var presigner = new MediaStorageConfiguration().mediaS3Presigner(properties);
+                var http = HttpClient.newHttpClient()) {
+            var grant = new StagingUploadSigner(presigner, properties).sign(id, key, bytes.length,
+                    digest(bytes), Instant.now().plusSeconds(3600), Instant.now());
+            URI uri = URI.create(grant.url());
+            for (String target : new String[] {grant.url().replace("/staging/", "/sources/"),
+                    grant.url().replace("/libra-source/staging/", "/libra-hls/hls/"),
+                    grant.url().replace(id.toString(), UUID.randomUUID().toString())}) {
+                assertThat(send(http, URI.create(target), "PUT", grant.requiredHeaders(), bytes)).isEqualTo(403);
+            }
+            for (String method : new String[] {"GET", "HEAD", "DELETE"}) {
+                assertThat(send(http, uri, method, grant.requiredHeaders(), bytes)).isEqualTo(403);
+            }
+            for (String header : grant.requiredHeaders().keySet()) {
+                var missing = new java.util.HashMap<>(grant.requiredHeaders());
+                missing.remove(header);
+                assertThat(send(http, uri, "PUT", missing, bytes)).isEqualTo(403);
+                var changed = new java.util.HashMap<>(grant.requiredHeaders());
+                changed.put(header, header.equals("Content-Type") ? "text/plain"
+                        : java.util.Base64.getEncoder().encodeToString(new byte[32]));
+                assertThat(send(http, uri, "PUT", changed, bytes)).isEqualTo(403);
+            }
+            assertThat(send(http, uri, "PUT", grant.requiredHeaders(), new byte[bytes.length + 1])).isEqualTo(403);
+            assertThat(send(http, uri, "PUT", grant.requiredHeaders(), new byte[bytes.length - 1])).isEqualTo(403);
+            assertThat(send(http, uri, "PUT", grant.requiredHeaders(), new byte[bytes.length])).isEqualTo(400);
+            var chunked = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10));
+            grant.requiredHeaders().forEach(chunked::header);
+            assertThat(http.send(chunked.PUT(HttpRequest.BodyPublishers.ofInputStream(
+                    () -> new java.io.ByteArrayInputStream(bytes))).build(),
+                    HttpResponse.BodyHandlers.discarding()).statusCode()).isEqualTo(403);
+            assertThat(storage.head(S3MediaStorage.Area.STAGING, key)).isEmpty();
+            for (int replay = 0; replay < 2; replay++) {
+                assertThat(send(http, uri, "PUT", grant.requiredHeaders(), bytes)).isEqualTo(200);
+                assertThat(send(http, uri, "PUT", grant.requiredHeaders(), new byte[bytes.length])).isEqualTo(400);
+                Path downloaded = storage.download(S3MediaStorage.Area.STAGING, key);
+                try { assertThat(Files.readAllBytes(downloaded)).isEqualTo(bytes); }
+                finally { Files.delete(downloaded); }
+            }
+            assertThat(storage.head(S3MediaStorage.Area.SOURCE, "sources/" + id + "/source.mp4")).isEmpty();
+            assertThat(storage.head(S3MediaStorage.Area.HLS, "hls/" + id + "/source.mp4")).isEmpty();
+        } finally { storage.delete(S3MediaStorage.Area.STAGING, key); }
+    }
+
+    @Test
+    void expiredUrlRejectsNewRequestsButDoesNotCancelAnInflightWrite() throws Exception {
+        byte[] bytes = "expiry-boundary-fixture".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        UUID id = UUID.randomUUID();
+        String key = "staging/" + id + "/source.mp4";
+        var properties = settings(configured.internalEndpointUri(), ACCESS, SECRET);
+        try (var presigner = new MediaStorageConfiguration().mediaS3Presigner(properties);
+                var http = HttpClient.newHttpClient()) {
+            Instant now = Instant.now();
+            var grant = new StagingUploadSigner(presigner, properties).sign(id, key, bytes.length,
+                    digest(bytes), now.plusSeconds(3), now);
+            URI uri = URI.create(grant.url());
+            try (var socket = new java.net.Socket(uri.getHost(), uri.getPort())) {
+                socket.setSoTimeout(10000);
+                StringBuilder headers = new StringBuilder("PUT " + uri.getRawPath() + "?" + uri.getRawQuery()
+                        + " HTTP/1.1\r\nHost: " + uri.getRawAuthority() + "\r\nContent-Length: " + bytes.length
+                        + "\r\nExpect: 100-continue\r\nConnection: close\r\n");
+                grant.requiredHeaders().forEach((name, value) -> headers.append(name).append(": ").append(value).append("\r\n"));
+                var output = socket.getOutputStream();
+                output.write(headers.append("\r\n").toString().getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                output.flush();
+                var reader = new java.io.BufferedReader(new java.io.InputStreamReader(socket.getInputStream(),
+                        java.nio.charset.StandardCharsets.US_ASCII));
+                assertThat(reader.readLine()).isEqualTo("HTTP/1.1 100 Continue");
+                assertThat(reader.readLine()).isEmpty();
+                Thread.sleep(4200);
+                assertThat(send(http, uri, "PUT", grant.requiredHeaders(), bytes)).isEqualTo(403);
+                output.write(bytes);
+                output.flush();
+                assertThat(reader.readLine()).isEqualTo("HTTP/1.1 200 OK");
+            }
+            assertThat(storage.head(S3MediaStorage.Area.STAGING, key).orElseThrow().length()).isEqualTo(bytes.length);
+        } finally { storage.delete(S3MediaStorage.Area.STAGING, key); }
+    }
+
+    @Test
+    void issuanceCapsExpiryAndSizeAndNeverSignsFrozenOrOutputKeys() throws Exception {
+        var properties = settings(configured.internalEndpointUri(), ACCESS, SECRET);
+        UUID id = UUID.randomUUID();
+        String key = "staging/" + id + "/source.mp4";
+        Instant now = Instant.now();
+        try (var presigner = new MediaStorageConfiguration().mediaS3Presigner(properties)) {
+            var signer = new StagingUploadSigner(presigner, properties);
+            for (long size : new long[] {0, -1, properties.maxObjectBytes() + 1, 268435457}) {
+                assertThatThrownBy(() -> signer.sign(id, key, size, "a".repeat(64), now.plusSeconds(3600), now))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+            for (String invalid : new String[] {"sources/" + id + "/source.mp4", "hls/" + id + "/source.mp4",
+                    "staging/" + UUID.randomUUID() + "/source.mp4", "staging/../source.mp4"}) {
+                assertThatThrownBy(() -> signer.sign(id, invalid, 1, "a".repeat(64), now.plusSeconds(3600), now))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+            for (Instant expired : new Instant[] {now, now.minusNanos(1)}) {
+                assertThatThrownBy(() -> signer.sign(id, key, 1, "a".repeat(64), expired, now))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+            var maximum = signer.sign(id, key, properties.maxObjectBytes(), "a".repeat(64), now.plusSeconds(3600), now);
+            assertThat(maximum.expiresAt()).isEqualTo(now.plusSeconds(900));
+            assertThat(URI.create(maximum.url()).getRawQuery().contains("X-Amz-Expires=900")).isTrue();
+            var nearExpiry = signer.sign(id, key, 1, "a".repeat(64), now.plusSeconds(7), now);
+            assertThat(nearExpiry.expiresAt()).isEqualTo(now.plusSeconds(7));
+            assertThat(URI.create(nearExpiry.url()).getRawQuery().contains("X-Amz-Expires=7")).isTrue();
+        }
+    }
+
+    private static String digest(byte[] bytes) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+    }
+
+    private static int send(HttpClient http, URI uri, String method, java.util.Map<String, String> headers,
+            byte[] body) throws Exception {
+        var request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10));
+        headers.forEach(request::header);
+        return http.send(request.method(method, HttpRequest.BodyPublishers.ofByteArray(body)).build(),
+                HttpResponse.BodyHandlers.discarding()).statusCode();
     }
 }

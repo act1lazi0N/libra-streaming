@@ -1,11 +1,12 @@
 #requires -Version 7.0
-param([string]$Python = 'tmp/milestone8-tools/Scripts/python.exe')
+param([string]$Python = 'tmp/milestone8-tools/Scripts/python.exe',
+      [ValidateSet('M11', 'M12')][string]$Scenario = 'M11')
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $project = 'libra-m11-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
 $composeFile = Join-Path $PSScriptRoot 'compose.media-m11.yaml'
 $compose = @('compose', '--project-name', $project, '--file', $composeFile)
-$evidence = Join-Path $repository 'target/verification/media-m11.json'
+$evidence = Join-Path $repository ('target/verification/media-' + $Scenario.ToLowerInvariant() + '.json')
 $logDirectory = Join-Path $repository 'target/verification/m11-processes'
 $coreProcess = $null
 $mediaProcess = $null
@@ -140,8 +141,8 @@ try {
     $mediaArguments = '-Djdk.net.unixdomain.tmpdir="' + $logDirectory + '" -jar "' + $mediaJar + '"'
     $coreProcess = Start-Process -FilePath $java -ArgumentList $coreArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'core.out.log') -RedirectStandardError (Join-Path $logDirectory 'core.err.log')
     $mediaProcess = Start-Process -FilePath $java -ArgumentList $mediaArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'media.out.log') -RedirectStandardError (Join-Path $logDirectory 'media.err.log')
-    & $Python infra/smoke/media_m11_http.py --core-url "http://127.0.0.1:$corePort" --media-url "http://127.0.0.1:$mediaPort" --browser-port $browserPort --project $project --compose-file $composeFile
-    if ($LASTEXITCODE -ne 0) { throw 'M11 HTTP/browser/database smoke failed.' }
+    & $Python infra/smoke/media_m11_http.py --scenario $Scenario --core-url "http://127.0.0.1:$corePort" --media-url "http://127.0.0.1:$mediaPort" --browser-port $browserPort --project $project --compose-file $composeFile
+    if ($LASTEXITCODE -ne 0) { throw "$Scenario HTTP/browser/database smoke failed." }
 } catch {
     if (Test-Path -LiteralPath $evidence) { Remove-Item -LiteralPath $evidence }
     throw

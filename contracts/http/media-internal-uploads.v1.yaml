@@ -90,7 +90,10 @@ paths:
         and never exceeds the original one-hour session expiry. Reissue does not
         extend that expiry. Media rechecks the exact current Core candidate;
         unavailable binding authority returns 503 without a URL. The URL may
-        overwrite staging, so staging is not a committed source.
+        overwrite staging, so staging is not a committed source. The signed length
+        and checksum bind the payload; GET, HEAD, DELETE and listing are not granted.
+        Expiry rejects new requests but does not cancel an already admitted write.
+        Completion and cleanup must not infer immutability from expiry alone.
       parameters:
         - $ref: '#/components/parameters/UploadId'
       responses:
