@@ -73,10 +73,10 @@ class MediaUploadStore {
             throw new UploadFailure("UPLOAD_STATE_CONFLICT");
         }
         if (current.uploadState().equals("SUBMITTED") && current.jobId() != null) { return current.jobId(); }
-        if (!current.uploadState().equals("OPEN") || !current.assetState().equals("UPLOADING")
-                || !current.expiresAt().isAfter(now)) {
+        if (!current.uploadState().equals("OPEN") || !current.assetState().equals("UPLOADING")) {
             throw new UploadFailure("UPLOAD_STATE_CONFLICT");
         }
+        if (!current.expiresAt().isAfter(now)) { throw new UploadFailure("UPLOAD_EXPIRED"); }
         int changed = jdbc.update("UPDATE media_uploads SET state = 'SUBMITTED', updated_at = ? WHERE id = ? AND state = 'OPEN'",
                 Timestamp.from(now), uploadId);
         changed += jdbc.update("""

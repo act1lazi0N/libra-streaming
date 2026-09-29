@@ -90,6 +90,25 @@ class MediaControlClientTest {
         assertThat(client.issueUrl(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.INVALID_RESPONSE);
     }
 
+    @Test void completionUsesWriteScopeAndAcceptsOnlyDurableQueuedStatus() throws Exception {
+        UUID job = UUID.randomUUID();
+        String queued = statusBody().replace("\"uploadState\":\"OPEN\"", "\"uploadState\":\"SUBMITTED\"")
+                .replace("\"assetState\":\"UPLOADING\"", "\"assetState\":\"QUEUED\"")
+                .replace("\"jobId\":null", "\"jobId\":\"" + job + "\"");
+        responder = exchange -> respond(exchange, 202, "application/json", queued);
+        Result accepted = client.complete(upload, UUID.randomUUID());
+        assertThat(accepted.failure()).isNull();
+        assertThat(accepted.value().jobId()).isEqualTo(job);
+        assertThat(method).isEqualTo("POST");
+        assertThat(cookie).isNull();
+        assertThat(SignedJWT.parse(authorization.substring(7)).getJWTClaimsSet().getStringClaim("scope"))
+                .isEqualTo("core.media.uploads:write");
+        responder = exchange -> respond(exchange, 409, "application/problem+json", "{\"code\":\"SOURCE_MISSING\"}");
+        assertThat(client.complete(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.SOURCE_MISSING);
+        responder = exchange -> respond(exchange, 200, "application/json", queued);
+        assertThat(client.complete(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.UNAVAILABLE);
+    }
+
     @Test void translatesRemoteFailuresWithoutRetryOrBodyDisclosure() {
         int[] statuses = {401, 403, 404, 409, 410, 500, 503};
         Failure[] failures = {Failure.ACCESS_DENIED, Failure.ACCESS_DENIED, Failure.NOT_FOUND, Failure.CONFLICT,

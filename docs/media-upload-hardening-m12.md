@@ -53,8 +53,9 @@ expires, waits past expiry, observes 403 for a new request, then finishes the
 already admitted PUT successfully. This agrees with the request-admission expiry
 check in [SeaweedFS 4.46](https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/s3api/auth_signature_v4.go).
 URL expiry, session expiry, or a database state change cannot revoke an admitted
-write. Later completion must validate actual bytes and freeze an immutable
-source; later cleanup must tolerate late staging writes and reconcile them.
+write. M13 completion checks staging metadata before durable queue admission;
+M17/M18 must validate actual bytes and freeze an immutable source before any
+processing. Later cleanup must tolerate late staging writes and reconcile them.
 Never process mutable staging or treat a single post-expiry delete as final.
 
 ## Reproduce and evidence boundaries

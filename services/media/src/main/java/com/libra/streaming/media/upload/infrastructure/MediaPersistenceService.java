@@ -67,6 +67,12 @@ public class MediaPersistenceService {
         return new GrantSource(current, store.stagingKey(uploadId));
     }
 
+    @Transactional
+    public Snapshot queue(UUID uploadId, UUID assetId, long assetVersion) {
+        store.queue(uploadId, assetId, assetVersion, UUID.randomUUID(), clock.instant());
+        return read(uploadId);
+    }
+
     private static UploadDescriptor descriptor(Ensure input) {
         if (input == null) { throw new UploadFailure("INVALID_REQUEST"); }
         var descriptor = new UploadDescriptor(input.uploadId(), input.requestId(), input.contentId(),

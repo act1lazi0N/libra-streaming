@@ -46,6 +46,14 @@ public class UploadController {
                 .body(uploads.issueUrl(actor, uploadId, correlationId));
     }
 
+    @PostMapping("/uploads/{uploadId}/complete")
+    ResponseEntity<UploadProvisioningService.UploadStatus> complete(
+            @AuthenticationPrincipal IdentityPrincipal actor, @PathVariable UUID uploadId,
+            @RequestAttribute(CorrelationIdFilter.ATTRIBUTE) UUID correlationId) {
+        return ResponseEntity.accepted().cacheControl(CacheControl.noStore())
+                .body(uploads.complete(actor, uploadId, correlationId));
+    }
+
     record CreateUpload(@NotNull UUID requestId, @Min(1) long expectedVersion,
             @Min(1) @Max(268435456) long byteLength,
             @NotNull @Pattern(regexp = "[a-f0-9]{64}") String sha256) {}

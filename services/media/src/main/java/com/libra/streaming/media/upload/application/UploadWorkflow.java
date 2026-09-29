@@ -8,11 +8,14 @@ public final class UploadWorkflow {
     private final UploadPersistence uploads;
     private final CandidateBinding core;
     private final UploadGrantSigner signer;
+    private final StagingInspector staging;
 
-    public UploadWorkflow(UploadPersistence uploads, CandidateBinding core, UploadGrantSigner signer) {
+    public UploadWorkflow(UploadPersistence uploads, CandidateBinding core, UploadGrantSigner signer,
+            StagingInspector staging) {
         this.uploads = uploads;
         this.core = core;
         this.signer = signer;
+        this.staging = staging;
     }
 
     public Created ensure(UploadDescriptor command) {
@@ -35,6 +38,15 @@ public final class UploadWorkflow {
         var source = uploads.grantSource(uploadId);
         core.requireCurrent(source.snapshot().command());
         return signer.sign(source);
+    }
+
+    public UploadPersistence.UploadSnapshot complete(UUID uploadId) {
+        var current = uploads.read(uploadId);
+        if ("SUBMITTED".equals(current.uploadState()) && current.jobId() != null) { return current; }
+        var source = uploads.grantSource(uploadId);
+        core.requireCurrent(source.snapshot().command());
+        staging.requireComplete(source);
+        return uploads.queue(uploadId, current.assetId(), current.assetVersion());
     }
 
     public record Created(UploadPersistence.UploadSnapshot snapshot, boolean existing) {}

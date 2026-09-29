@@ -12,6 +12,8 @@ public interface UploadPersistence {
 
     UploadSource grantSource(UUID uploadId);
 
+    UploadSnapshot queue(UUID uploadId, UUID assetId, long assetVersion);
+
     record UploadSnapshot(UUID uploadId, UUID requestId, UUID contentId, UUID bindingId, UUID assetId,
             long assetVersion, long byteLength, String sha256, String uploadState, String assetState,
             UUID jobId, int attemptCount, Instant expiresAt) {

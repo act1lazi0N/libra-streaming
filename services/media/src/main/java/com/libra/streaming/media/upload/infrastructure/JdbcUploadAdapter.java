@@ -38,6 +38,11 @@ public class JdbcUploadAdapter implements UploadPersistence {
         return new UploadSource(snapshot(source.snapshot()), source.stagingKey());
     }
 
+    @Override
+    public UploadSnapshot queue(UUID uploadId, UUID assetId, long assetVersion) {
+        return snapshot(persistence.queue(uploadId, assetId, assetVersion));
+    }
+
     private static UploadSnapshot snapshot(MediaPersistenceService.Snapshot source) {
         return new UploadSnapshot(source.uploadId(), source.requestId(), source.contentId(),
                 source.bindingId(), source.assetId(), source.assetVersion(), source.byteLength(),

@@ -29,10 +29,14 @@ class UploadWorkflowTest {
                         command.bindingId(), command.assetId(), command.assetVersion(), command.byteLength(),
                         command.sha256(), "OPEN", "UPLOADING", null, 0, command.expiresAt()), "staging/key");
             }
+            @Override public UploadSnapshot queue(UUID uploadId, UUID assetId, long assetVersion) {
+                throw new AssertionError("queue reached");
+            }
         };
         CandidateBinding denied = ignored -> { throw new IllegalStateException("not current"); };
         UploadGrantSigner signer = ignored -> { signs.incrementAndGet(); throw new AssertionError("sign reached"); };
-        var workflow = new UploadWorkflow(persistence, denied, signer);
+        var workflow = new UploadWorkflow(persistence, denied, signer,
+                ignored -> { throw new AssertionError("storage reached"); });
 
         assertThatThrownBy(() -> workflow.ensure(command)).hasMessage("not current");
         assertThatThrownBy(() -> workflow.issueUrl(command.uploadId())).hasMessage("not current");

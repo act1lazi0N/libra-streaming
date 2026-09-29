@@ -1,6 +1,6 @@
 #requires -Version 7.0
 param([string]$Python = 'tmp/milestone8-tools/Scripts/python.exe',
-      [ValidateSet('M11', 'M12')][string]$Scenario = 'M11')
+      [ValidateSet('M11', 'M12', 'M13')][string]$Scenario = 'M11')
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $project = 'libra-m11-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -141,8 +141,18 @@ try {
     $mediaArguments = '-Djdk.net.unixdomain.tmpdir="' + $logDirectory + '" -jar "' + $mediaJar + '"'
     $coreProcess = Start-Process -FilePath $java -ArgumentList $coreArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'core.out.log') -RedirectStandardError (Join-Path $logDirectory 'core.err.log')
     $mediaProcess = Start-Process -FilePath $java -ArgumentList $mediaArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'media.out.log') -RedirectStandardError (Join-Path $logDirectory 'media.err.log')
-    & $Python infra/smoke/media_m11_http.py --scenario $Scenario --core-url "http://127.0.0.1:$corePort" --media-url "http://127.0.0.1:$mediaPort" --browser-port $browserPort --project $project --compose-file $composeFile
+    $smokeOutput = & $Python infra/smoke/media_m11_http.py --scenario $Scenario --core-url "http://127.0.0.1:$corePort" --media-url "http://127.0.0.1:$mediaPort" --browser-port $browserPort --project $project --compose-file $composeFile
     if ($LASTEXITCODE -ne 0) { throw "$Scenario HTTP/browser/database smoke failed." }
+    if ($Scenario -eq 'M13') {
+        $identity = @($smokeOutput | Where-Object { $_ -match '^M13_UPLOAD_ID=[0-9a-f-]{36}$' })
+        if ($identity.Count -ne 1) { throw 'M13 did not report one upload identity.' }
+        Stop-Process -Id $mediaProcess.Id -Force
+        Wait-Process -Id $mediaProcess.Id -ErrorAction SilentlyContinue
+        $mediaProcess = Start-Process -FilePath $java -ArgumentList $mediaArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'media-restarted.out.log') -RedirectStandardError (Join-Path $logDirectory 'media-restarted.err.log')
+        & $Python infra/smoke/media_m13_restart.py --core-url "http://127.0.0.1:$corePort" --media-url "http://127.0.0.1:$mediaPort" --upload-id $identity[0].Substring(14) --project $project --compose-file $composeFile
+        if ($LASTEXITCODE -ne 0) { throw 'M13 restart persistence check failed.' }
+    }
+    $smokeOutput | Where-Object { $_ -notmatch '^M13_UPLOAD_ID=' } | Write-Output
 } catch {
     if (Test-Path -LiteralPath $evidence) { Remove-Item -LiteralPath $evidence }
     throw

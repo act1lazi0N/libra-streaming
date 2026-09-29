@@ -47,6 +47,12 @@ public class UploadControlController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(workflow.issueUrl(uploadId));
     }
 
+    @PostMapping("/{uploadId}/complete")
+    ResponseEntity<Status> complete(@PathVariable UUID uploadId) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).cacheControl(CacheControl.noStore())
+                .body(view(workflow.complete(uploadId)));
+    }
+
     private static Status view(UploadPersistence.UploadSnapshot snapshot) {
         return new Status(snapshot.uploadId(), snapshot.contentId(), snapshot.bindingId(), snapshot.assetId(),
                 snapshot.assetVersion(), snapshot.uploadState(), snapshot.assetState(), snapshot.jobId(),

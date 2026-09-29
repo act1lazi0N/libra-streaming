@@ -35,7 +35,7 @@ public final class MediaControlModels {
             };
         }
     }
-    public enum Failure { DISABLED, UNAVAILABLE, INVALID_RESPONSE, NOT_FOUND, CONFLICT, EXPIRED, ACCESS_DENIED }
+    public enum Failure { DISABLED, UNAVAILABLE, INVALID_RESPONSE, NOT_FOUND, CONFLICT, SOURCE_MISSING, EXPIRED, ACCESS_DENIED }
     public record Result(Status value, Failure failure) {
         static Result failed(Failure failure) { return new Result(null, failure); }
     }

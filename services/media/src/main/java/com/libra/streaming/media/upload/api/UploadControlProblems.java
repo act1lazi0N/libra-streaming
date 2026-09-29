@@ -23,7 +23,7 @@ public class UploadControlProblems {
         HttpStatus status = switch (code) {
             case "INVALID_REQUEST" -> HttpStatus.BAD_REQUEST;
             case "NOT_FOUND" -> HttpStatus.NOT_FOUND;
-            case "IDEMPOTENCY_CONFLICT", "UPLOAD_STATE_CONFLICT" -> HttpStatus.CONFLICT;
+            case "IDEMPOTENCY_CONFLICT", "UPLOAD_STATE_CONFLICT", "SOURCE_MISSING" -> HttpStatus.CONFLICT;
             case "UPLOAD_EXPIRED" -> HttpStatus.GONE;
             default -> HttpStatus.SERVICE_UNAVAILABLE;
         };

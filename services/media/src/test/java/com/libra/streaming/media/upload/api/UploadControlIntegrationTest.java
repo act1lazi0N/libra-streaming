@@ -1,6 +1,8 @@
 package com.libra.streaming.media.upload.api;
 
 import com.libra.streaming.media.upload.infrastructure.MediaPersistenceService;
+import com.libra.streaming.media.upload.application.StagingInspector;
+import com.libra.streaming.media.upload.application.UploadFailure;
 import com.nimbusds.jose.*;
 import com.nimbusds.jose.crypto.*;
 import com.nimbusds.jwt.*;
@@ -25,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -38,6 +41,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -57,6 +61,7 @@ class UploadControlIntegrationTest {
     @Autowired WebApplicationContext context;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @MockitoBean StagingInspector staging;
     MockMvc mvc;
 
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry) {
@@ -153,6 +158,48 @@ class UploadControlIntegrationTest {
                 .andExpect(jsonPath("$.code").value("STORAGE_UNAVAILABLE"));
         assertThat(count("media_uploads")).isEqualTo(1);
         assertThat(count("media_jobs")).isZero();
+    }
+
+    @Test void completionRequiresStorageAndCurrentBindingThenQueuesOneDurableJob() throws Exception {
+        ensure(body(command.byteLength()));
+        String path = "/internal/v1/uploads/" + command.uploadId() + "/complete";
+        mvc.perform(post(path)).andExpect(status().isUnauthorized());
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:read")))
+                .andExpect(status().isForbidden());
+        candidate = false;
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isNotFound());
+        candidate = true;
+        doThrow(new UploadFailure("SOURCE_MISSING")).when(staging).requireComplete(any());
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SOURCE_MISSING"));
+        assertThat(count("media_jobs")).isZero();
+        reset(staging);
+        var first = mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.uploadState").value("SUBMITTED"))
+                .andExpect(jsonPath("$.assetState").value("QUEUED"))
+                .andExpect(jsonPath("$.attemptCount").value(0)).andReturn();
+        String job = mapper.readTree(first.getResponse().getContentAsString()).path("jobId").asString();
+        assertThat(UUID.fromString(job)).isNotNull();
+        candidate = false;
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.jobId").value(job));
+        assertThat(count("media_jobs")).isEqualTo(1);
+        assertThat(count("media_outbox_events")).isZero();
+        assertThat(jdbc.queryForObject("SELECT stage FROM media_jobs WHERE upload_id = ?", String.class,
+                command.uploadId())).isEqualTo("QUEUED");
+        verify(staging, times(1)).requireComplete(any());
+    }
+
+    @Test void expiredOpenUploadCannotBeCompletedOrAllocateAJob() throws Exception {
+        ensure(body(command.byteLength()));
+        jdbc.update("UPDATE media_uploads SET created_at = now() - interval '2 hours', "
+                + "expires_at = now() - interval '1 hour' WHERE id = ?", command.uploadId());
+        mvc.perform(post("/internal/v1/uploads/" + command.uploadId() + "/complete")
+                .header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isGone()).andExpect(jsonPath("$.code").value("UPLOAD_EXPIRED"));
+        assertThat(count("media_jobs")).isZero();
+        verifyNoInteractions(staging);
     }
 
     @Test void simultaneousChangedFingerprintConflictsWithoutDuplicateAsset() throws Exception {

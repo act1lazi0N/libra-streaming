@@ -51,7 +51,7 @@ public class UploadProvisioningService {
         var result = media.issueUrl(uploadId, correlationId);
         if (result.failure() != null) {
             throw switch (result.failure()) {
-                case CONFLICT, NOT_FOUND -> DomainException.conflict("UPLOAD_STATE_CONFLICT");
+                case CONFLICT, NOT_FOUND, SOURCE_MISSING -> DomainException.conflict("UPLOAD_STATE_CONFLICT");
                 case EXPIRED -> new DomainException(HttpStatus.GONE, "UPLOAD_EXPIRED");
                 default -> new DomainException(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UNAVAILABLE");
             };
@@ -71,6 +71,21 @@ public class UploadProvisioningService {
         return grant;
     }
 
+    public UploadStatus complete(IdentityPrincipal actor, UUID uploadId, UUID correlationId) {
+        var intent = intents.read(actor, uploadId);
+        var existing = media.read(uploadId, correlationId);
+        var current = status(intent, existing);
+        if (current.uploadState() != MediaControlModels.UploadState.SUBMITTED) {
+            intents.readCurrentCandidate(actor, uploadId);
+        }
+        var completed = media.complete(uploadId, correlationId);
+        var accepted = status(intent, completed);
+        if (accepted.uploadState() != MediaControlModels.UploadState.SUBMITTED || accepted.jobId() == null) {
+            throw new DomainException(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UNAVAILABLE");
+        }
+        return accepted;
+    }
+
     private UploadStatus provision(UploadIntentService.Reservation intent, UUID correlationId) {
         var command = new MediaControlModels.EnsureUpload(intent.requestId(), intent.contentId(),
                 intent.bindingId(), intent.assetId(), intent.assetVersion(), intent.byteLength(),
@@ -82,6 +97,7 @@ public class UploadProvisioningService {
         if (result.failure() != null) {
             throw switch (result.failure()) {
                 case CONFLICT -> DomainException.conflict("UPLOAD_STATE_CONFLICT");
+                case SOURCE_MISSING -> DomainException.conflict("SOURCE_MISSING");
                 case NOT_FOUND -> DomainException.conflict("UPLOAD_STATE_CONFLICT");
                 case EXPIRED -> new DomainException(HttpStatus.GONE, "UPLOAD_EXPIRED");
                 // A failed or ambiguous remote call never rolls back the committed intent.
