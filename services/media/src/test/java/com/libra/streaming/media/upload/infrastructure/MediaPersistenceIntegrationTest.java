@@ -75,17 +75,17 @@ class MediaPersistenceIntegrationTest {
         var command = command();
         persistence.ensure(command);
         assertThatThrownBy(() -> store.queue(command.uploadId(), command.assetId(), command.assetVersion(),
-                UUID.randomUUID(), Instant.now())).isInstanceOf(IllegalTransactionStateException.class);
+                UUID.randomUUID())).isInstanceOf(IllegalTransactionStateException.class);
         var template = new TransactionTemplate(transactions);
         template.executeWithoutResult(status -> {
-            store.queue(command.uploadId(), command.assetId(), command.assetVersion(), UUID.randomUUID(), Instant.now());
+            store.queue(command.uploadId(), command.assetId(), command.assetVersion(), UUID.randomUUID());
             status.setRollbackOnly();
         });
         assertThat(persistence.read(command.uploadId()).uploadState()).isEqualTo("OPEN");
         assertThat(count("media_jobs")).isZero();
         UUID jobId = UUID.randomUUID();
         template.executeWithoutResult(status ->
-                store.queue(command.uploadId(), command.assetId(), command.assetVersion(), jobId, Instant.now()));
+                store.queue(command.uploadId(), command.assetId(), command.assetVersion(), jobId));
         assertThat(persistence.read(command.uploadId()).jobId()).isEqualTo(jobId);
         assertThat(persistence.read(command.uploadId()).assetState()).isEqualTo("QUEUED");
         assertThatThrownBy(() -> jdbc.update("""
@@ -141,7 +141,7 @@ class MediaPersistenceIntegrationTest {
 
         var template = new TransactionTemplate(transactions);
         var jobIds = race(() -> template.execute(status -> store.queue(command.uploadId(),
-                command.assetId(), command.assetVersion(), UUID.randomUUID(), Instant.now())));
+                command.assetId(), command.assetVersion(), UUID.randomUUID())));
         assertThat(jobIds.get(0)).isEqualTo(jobIds.get(1));
         assertThat(count("media_jobs")).isEqualTo(1);
         assertThat(persistence.read(command.uploadId()).uploadState()).isEqualTo("SUBMITTED");
@@ -166,12 +166,12 @@ class MediaPersistenceIntegrationTest {
         persistence.ensure(command);
         var template = new TransactionTemplate(transactions);
         assertThatThrownBy(() -> template.execute(status -> store.queue(command.uploadId(),
-                UUID.randomUUID(), command.assetVersion(), UUID.randomUUID(), Instant.now())))
+                UUID.randomUUID(), command.assetVersion(), UUID.randomUUID())))
                 .isInstanceOf(UploadFailure.class).hasMessage("UPLOAD_STATE_CONFLICT");
         assertThat(persistence.read(command.uploadId()).uploadState()).isEqualTo("OPEN");
 
         template.executeWithoutResult(status -> store.queue(command.uploadId(), command.assetId(),
-                command.assetVersion(), UUID.randomUUID(), Instant.now()));
+                command.assetVersion(), UUID.randomUUID()));
         assertThatThrownBy(() -> jdbc.update("UPDATE media_jobs SET stage = 'CLAIMED' WHERE upload_id = ?",
                 command.uploadId())).isInstanceOf(DataIntegrityViolationException.class);
         UUID correlation = command.requestId();

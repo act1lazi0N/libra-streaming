@@ -36,8 +36,10 @@ with independent random values before starting Compose; see
 [Media storage security](docs/media-storage-m06.md) for local setup and verification.
 
 [Media Core service authentication](docs/media-service-auth-m07.md) adds the
-dedicated Core-to-Media identity and bounded internal client. Upload handlers
-remain scheduled for subsequent Media milestones.
+dedicated Core-to-Media identity and bounded internal client. Admin upload,
+signed staging PUT, and [durable completion](docs/media-completion-m13.md) are
+implemented, with [completion race and failure hardening](docs/media-completion-hardening-m14.md).
+Worker processing and immutable source selection remain subsequent milestones.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

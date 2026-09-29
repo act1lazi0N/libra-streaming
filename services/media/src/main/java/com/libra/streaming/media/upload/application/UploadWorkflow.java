@@ -37,16 +37,26 @@ public final class UploadWorkflow {
     public UploadGrantSigner.Grant issueUrl(UUID uploadId) {
         var source = uploads.grantSource(uploadId);
         core.requireCurrent(source.snapshot().command());
-        return signer.sign(source);
+        var grant = signer.sign(source);
+        // Signing and the Core lookup may overlap completion or expiry.
+        uploads.grantSource(uploadId);
+        return grant;
     }
 
     public UploadPersistence.UploadSnapshot complete(UUID uploadId) {
         var current = uploads.read(uploadId);
         if ("SUBMITTED".equals(current.uploadState()) && current.jobId() != null) { return current; }
-        var source = uploads.grantSource(uploadId);
-        core.requireCurrent(source.snapshot().command());
-        staging.requireComplete(source);
-        return uploads.queue(uploadId, current.assetId(), current.assetVersion());
+        try {
+            var source = uploads.grantSource(uploadId);
+            core.requireCurrent(source.snapshot().command());
+            staging.requireComplete(source);
+            return uploads.queue(uploadId, current.assetId(), current.assetVersion());
+        } catch (UploadFailure | CandidateBindingFailure exception) {
+            // Another caller can commit while this caller is checking admission.
+            var committed = uploads.read(uploadId);
+            if ("SUBMITTED".equals(committed.uploadState()) && committed.jobId() != null) { return committed; }
+            throw exception;
+        }
     }
 
     public record Created(UploadPersistence.UploadSnapshot snapshot, boolean existing) {}

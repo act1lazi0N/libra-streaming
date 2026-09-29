@@ -1,5 +1,6 @@
 package com.libra.streaming.media.storage;
 
+import com.libra.streaming.media.upload.application.UploadPersistence;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -24,6 +25,8 @@ import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.containers.wait.strategy.Wait;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetBucketCorsRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.core.sync.RequestBody;
 import static org.assertj.core.api.Assertions.*;
 
 @Testcontainers
@@ -84,6 +87,41 @@ class MediaStorageIntegrationTest {
     @Autowired S3MediaStorage storage;
     @Autowired S3Client client;
     @Autowired MediaStorageProperties configured;
+    @Autowired StagingObjectInspector inspector;
+
+    @Test
+    void completionInspectsActualStagingLengthAndTypeButDoesNotFreezeBytes() throws Exception {
+        UUID id = UUID.randomUUID();
+        String key = "staging/" + id + "/source.mp4";
+        var source = completionSource(id, key);
+        Path file = storage.scratchFile();
+        try {
+            assertThatThrownBy(() -> inspector.requireComplete(source)).hasMessage("SOURCE_MISSING");
+            Files.write(file, new byte[1023]);
+            storage.put(S3MediaStorage.Area.STAGING, key, file, "video/mp4");
+            assertThatThrownBy(() -> inspector.requireComplete(source)).hasMessage("SOURCE_MISSING");
+            Files.write(file, new byte[1024]);
+            // SeaweedFS infers video/mp4 for octet-stream at an .mp4 key; use an explicit wrong MIME.
+            client.putObject(PutObjectRequest.builder().bucket(configured.sourceBucket()).key(key)
+                    .contentType("text/plain").build(), RequestBody.fromFile(file));
+            assertThat(storage.head(S3MediaStorage.Area.STAGING, key).orElseThrow().contentType()).isEqualTo("text/plain");
+            assertThatThrownBy(() -> inspector.requireComplete(source)).hasMessage("SOURCE_MISSING");
+            storage.put(S3MediaStorage.Area.STAGING, key, file, "video/mp4");
+            // Matching HEAD metadata admits the job; declared SHA-256 is verified by the later worker.
+            inspector.requireComplete(source);
+            assertThat(storage.head(S3MediaStorage.Area.SOURCE, "sources/" + id + "/source.mp4")).isEmpty();
+        } finally {
+            Files.deleteIfExists(file);
+            storage.delete(S3MediaStorage.Area.STAGING, key);
+        }
+    }
+
+    private static UploadPersistence.UploadSource completionSource(UUID id, String key) {
+        return new UploadPersistence.UploadSource(
+                new UploadPersistence.UploadSnapshot(id,
+                        UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                        1024, "a".repeat(64), "OPEN", "UPLOADING", null, 0, Instant.now().plusSeconds(3600)), key);
+    }
 
     @Test
     void anonymousGetListAndPutAreDeniedForBothBucketsWithoutSideEffects() throws Exception {
@@ -157,6 +195,13 @@ class MediaStorageIntegrationTest {
                 var offline = new S3MediaStorage(offlineClient, properties);
                 assertThatThrownBy(() -> offline.head(S3MediaStorage.Area.SOURCE, "sources/private"))
                         .isInstanceOf(MediaStorageException.class).hasMessage("MEDIA_STORAGE_UNAVAILABLE").hasNoCause();
+                var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+                beans.registerSingleton("storage", offline);
+                var unavailableInspector = new StagingObjectInspector(beans.getBeanProvider(S3MediaStorage.class));
+                UUID id = UUID.randomUUID();
+                assertThatThrownBy(() -> unavailableInspector.requireComplete(
+                        completionSource(id, "staging/" + id + "/source.mp4")))
+                        .hasMessage("STORAGE_UNAVAILABLE").hasNoCause();
                 assertThat(new MediaStorageHealthIndicator(offlineClient, properties).health().getStatus().getCode())
                         .isEqualTo("DOWN");
             }

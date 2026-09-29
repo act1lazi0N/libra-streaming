@@ -3,6 +3,7 @@ package com.libra.streaming.media.upload.api;
 import com.libra.streaming.media.upload.infrastructure.MediaPersistenceService;
 import com.libra.streaming.media.upload.application.StagingInspector;
 import com.libra.streaming.media.upload.application.UploadFailure;
+import com.libra.streaming.media.upload.application.UploadGrantSigner;
 import com.nimbusds.jose.*;
 import com.nimbusds.jose.crypto.*;
 import com.nimbusds.jwt.*;
@@ -25,9 +26,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -62,6 +66,7 @@ class UploadControlIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @MockitoBean StagingInspector staging;
+    @MockitoSpyBean UploadGrantSigner signer;
     MockMvc mvc;
 
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry) {
@@ -174,6 +179,11 @@ class UploadControlIntegrationTest {
         mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SOURCE_MISSING"));
         assertThat(count("media_jobs")).isZero();
+        doThrow(new UploadFailure("STORAGE_UNAVAILABLE")).when(staging).requireComplete(any());
+        mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("STORAGE_UNAVAILABLE"));
+        assertThat(count("media_jobs")).isZero();
+        assertThat(jdbc.queryForObject("SELECT state FROM media_uploads", String.class)).isEqualTo("OPEN");
         reset(staging);
         var first = mvc.perform(post(path).header("Authorization", "Bearer " + token("core.media.uploads:write")))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.uploadState").value("SUBMITTED"))
@@ -200,6 +210,83 @@ class UploadControlIntegrationTest {
                 .andExpect(status().isGone()).andExpect(jsonPath("$.code").value("UPLOAD_EXPIRED"));
         assertThat(count("media_jobs")).isZero();
         verifyNoInteractions(staging);
+    }
+
+    @Test void simultaneousCompletionsReturnTheSameDurableJob() throws Exception {
+        ensure(body(command.byteLength()));
+        var inspected = new CountDownLatch(2);
+        doAnswer(invocation -> {
+            inspected.countDown();
+            assertThat(inspected.await(10, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(staging).requireComplete(any());
+        var results = race(this::complete, this::complete);
+        assertThat(results).allSatisfy(result -> assertThat(result.getResponse().getStatus()).isEqualTo(202));
+        var first = mapper.readTree(results.get(0).getResponse().getContentAsString());
+        var second = mapper.readTree(results.get(1).getResponse().getContentAsString());
+        assertThat(first.path("jobId").asString()).isEqualTo(second.path("jobId").asString()).isNotBlank();
+        assertThat(count("media_jobs")).isEqualTo(1);
+        assertThat(first.path("jobId").asString()).isEqualTo(
+                jdbc.queryForObject("SELECT id FROM media_jobs", UUID.class).toString());
+        assertThat(jdbc.queryForObject("SELECT attempt_count FROM media_jobs", Integer.class)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void jobInsertOrCommitFailureRollsBackAndReturnsSanitizedUnavailableBeforeRetry(boolean atCommit) throws Exception {
+        ensure(body(command.byteLength()));
+        jdbc.execute("""
+                CREATE FUNCTION reject_job() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'private database failure fixture'; END $$
+                """);
+        jdbc.execute(atCommit
+                ? "CREATE CONSTRAINT TRIGGER reject_job AFTER INSERT ON media_jobs "
+                        + "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_job()"
+                : "CREATE TRIGGER reject_job BEFORE INSERT ON media_jobs FOR EACH ROW EXECUTE FUNCTION reject_job()");
+        try {
+            var failed = complete().getResponse();
+            assertThat(failed.getStatus()).isEqualTo(503);
+            assertThat(failed.getContentAsString()).contains("MEDIA_UNAVAILABLE")
+                    .doesNotContain("private database", "media_jobs", "INSERT", "SQLException");
+            assertThat(failed.getHeader("Cache-Control")).contains("no-store");
+            assertThat(count("media_jobs")).isZero();
+            assertThat(jdbc.queryForObject("SELECT state FROM media_uploads", String.class)).isEqualTo("OPEN");
+            assertThat(jdbc.queryForObject("SELECT state FROM media_assets", String.class)).isEqualTo("UPLOADING");
+        } finally {
+            jdbc.execute("DROP TRIGGER reject_job ON media_jobs");
+            jdbc.execute("DROP FUNCTION reject_job()");
+        }
+        assertThat(complete().getResponse().getStatus()).isEqualTo(202);
+        assertThat(count("media_jobs")).isEqualTo(1);
+    }
+
+    private MvcResult complete() throws Exception {
+        return mvc.perform(post("/internal/v1/uploads/" + command.uploadId() + "/complete")
+                .header("Authorization", "Bearer " + token("core.media.uploads:write"))).andReturn();
+    }
+
+    @Test void completionWhileReissueIsSigningPreventsReturningTheGrant() throws Exception {
+        ensure(body(command.byteLength()));
+        var signing = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            signing.countDown();
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            return new UploadGrantSigner.Grant(command.uploadId(), "PUT", "https://example.invalid/fixture",
+                    command.expiresAt(), java.util.Map.of());
+        }).when(signer).sign(any());
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            var reissue = pool.submit(() -> mvc.perform(post("/internal/v1/uploads/" + command.uploadId() + "/upload-url")
+                    .header("Authorization", "Bearer " + token("core.media.uploads:write"))).andReturn());
+            try {
+                assertThat(signing.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThat(complete().getResponse().getStatus()).isEqualTo(202);
+            } finally { release.countDown(); }
+            var response = reissue.get(10, TimeUnit.SECONDS).getResponse();
+            assertThat(response.getStatus()).isEqualTo(409);
+            assertThat(response.getContentAsString()).contains("UPLOAD_STATE_CONFLICT").doesNotContain("fixture", "https://");
+        }
+        assertThat(count("media_jobs")).isEqualTo(1);
     }
 
     @Test void simultaneousChangedFingerprintConflictsWithoutDuplicateAsset() throws Exception {

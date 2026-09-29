@@ -69,7 +69,7 @@ public class MediaPersistenceService {
 
     @Transactional
     public Snapshot queue(UUID uploadId, UUID assetId, long assetVersion) {
-        store.queue(uploadId, assetId, assetVersion, UUID.randomUUID(), clock.instant());
+        store.queue(uploadId, assetId, assetVersion, UUID.randomUUID());
         return read(uploadId);
     }
 

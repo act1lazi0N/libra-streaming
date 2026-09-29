@@ -1,6 +1,6 @@
 #requires -Version 7.0
 param([string]$Python = 'tmp/milestone8-tools/Scripts/python.exe',
-      [ValidateSet('M11', 'M12', 'M13')][string]$Scenario = 'M11')
+      [ValidateSet('M11', 'M12', 'M13', 'M14')][string]$Scenario = 'M11')
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $project = 'libra-m11-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -73,10 +73,11 @@ try {
     $corePort = Free-Port
     $mediaPort = Free-Port
     $browserPort = Free-Port
+    $proxyPort = Free-Port
     $internalGatewayPort = ((& docker @compose port s3-gateway-internal 8333 | Select-Object -Last 1).Trim() -split ':')[-1]
     $browserGatewayPort = ((& docker @compose port s3-gateway-browser 8333 | Select-Object -Last 1).Trim() -split ':')[-1]
     if ($internalGatewayPort -eq $browserGatewayPort) { throw 'Expected two distinct S3 gateway ports.' }
-    if ((@($corePort, $mediaPort, $browserPort) | Select-Object -Unique).Count -ne 3) { throw 'Smoke service ports collided.' }
+    if ((@($corePort, $mediaPort, $browserPort, $proxyPort) | Select-Object -Unique).Count -ne 4) { throw 'Smoke service ports collided.' }
     $playback = Pair
     $control = Pair
     $binding = Pair
@@ -100,6 +101,7 @@ try {
     Set-Smoke 'CORE_PLAYBACK_KEY_ID' 'm11-playback'
     Set-Smoke 'CORE_MEDIA_CONTROL_ENABLED' 'true'
     Set-Smoke 'CORE_MEDIA_CONTROL_BASE_URL' "http://127.0.0.1:$mediaPort"
+    if ($Scenario -eq 'M14') { Set-Smoke 'CORE_MEDIA_CONTROL_BASE_URL' "http://127.0.0.1:$proxyPort" }
     Set-Smoke 'CORE_MEDIA_CONTROL_PRIVATE_KEY' $control[0]
     Set-Smoke 'CORE_MEDIA_CONTROL_PUBLIC_KEY' $control[1]
     Set-Smoke 'CORE_MEDIA_CONTROL_KEY_ID' 'm11-core-control'
@@ -141,7 +143,11 @@ try {
     $mediaArguments = '-Djdk.net.unixdomain.tmpdir="' + $logDirectory + '" -jar "' + $mediaJar + '"'
     $coreProcess = Start-Process -FilePath $java -ArgumentList $coreArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'core.out.log') -RedirectStandardError (Join-Path $logDirectory 'core.err.log')
     $mediaProcess = Start-Process -FilePath $java -ArgumentList $mediaArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'media.out.log') -RedirectStandardError (Join-Path $logDirectory 'media.err.log')
-    $smokeOutput = & $Python infra/smoke/media_m11_http.py --scenario $Scenario --core-url "http://127.0.0.1:$corePort" --media-url "http://127.0.0.1:$mediaPort" --browser-port $browserPort --project $project --compose-file $composeFile
+    if ($Scenario -eq 'M14') {
+        $smokeOutput = & $Python infra/smoke/media_m14_http.py --core-url "http://127.0.0.1:$corePort" --media-url "http://127.0.0.1:$mediaPort" --proxy-port $proxyPort --project $project --compose-file $composeFile
+    } else {
+        $smokeOutput = & $Python infra/smoke/media_m11_http.py --scenario $Scenario --core-url "http://127.0.0.1:$corePort" --media-url "http://127.0.0.1:$mediaPort" --browser-port $browserPort --project $project --compose-file $composeFile
+    }
     if ($LASTEXITCODE -ne 0) { throw "$Scenario HTTP/browser/database smoke failed." }
     if ($Scenario -eq 'M13') {
         $identity = @($smokeOutput | Where-Object { $_ -match '^M13_UPLOAD_ID=[0-9a-f-]{36}$' })

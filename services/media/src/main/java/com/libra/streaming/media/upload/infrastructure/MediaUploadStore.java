@@ -5,6 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,9 +18,12 @@ import static com.libra.streaming.media.upload.infrastructure.MediaPersistenceSe
 class MediaUploadStore {
     private final JdbcTemplate jdbc;
     private final String stagingPrefix;
+    private final Clock clock;
 
-    MediaUploadStore(JdbcTemplate jdbc, @Value("${libra.media.storage.staging-prefix}") String stagingPrefix) {
+    MediaUploadStore(JdbcTemplate jdbc, @Value("${libra.media.storage.staging-prefix}") String stagingPrefix,
+            Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
         if (stagingPrefix == null || !stagingPrefix.matches("[a-z0-9][a-z0-9/_-]*/")
                 || stagingPrefix.contains("//")) { throw new IllegalArgumentException("Invalid staging prefix"); }
         this.stagingPrefix = stagingPrefix;
@@ -66,7 +70,7 @@ class MediaUploadStore {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    UUID queue(UUID uploadId, UUID assetId, long assetVersion, UUID jobId, Instant now) {
+    UUID queue(UUID uploadId, UUID assetId, long assetVersion, UUID jobId) {
         Snapshot current = lock(uploadId);
         if (current == null) { throw new UploadFailure("NOT_FOUND"); }
         if (!current.assetId().equals(assetId) || current.assetVersion() != assetVersion) {
@@ -76,6 +80,8 @@ class MediaUploadStore {
         if (!current.uploadState().equals("OPEN") || !current.assetState().equals("UPLOADING")) {
             throw new UploadFailure("UPLOAD_STATE_CONFLICT");
         }
+        // Sample after acquiring the row lock, including any time spent waiting.
+        Instant now = clock.instant();
         if (!current.expiresAt().isAfter(now)) { throw new UploadFailure("UPLOAD_EXPIRED"); }
         int changed = jdbc.update("UPDATE media_uploads SET state = 'SUBMITTED', updated_at = ? WHERE id = ? AND state = 'OPEN'",
                 Timestamp.from(now), uploadId);

@@ -12,6 +12,12 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 
 @RestControllerAdvice(assignableTypes = UploadControlController.class)
 public class UploadControlProblems {
+    @ExceptionHandler({org.springframework.dao.DataAccessException.class,
+            org.springframework.transaction.TransactionException.class})
+    ResponseEntity<ProblemDetail> persistenceUnavailable(RuntimeException exception) {
+        return response(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UNAVAILABLE");
+    }
+
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class})
     ResponseEntity<ProblemDetail> invalid(Exception exception) {
         return response(HttpStatus.BAD_REQUEST, "INVALID_REQUEST");

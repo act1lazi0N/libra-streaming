@@ -3,8 +3,8 @@ info:
   title: LIBRA Media private upload control
   version: 1.0.0
   description: >-
-    M11 implements private ensure, status read and signed upload URL issuance;
-    completion remains planned. The private Core service
+    Implements private ensure, status read, signed upload URL issuance, and
+    durable completion admission hardened in M14. The private Core service
     JWT uses a dedicated RSA key, RS256 and configured kid; exact issuer
     libra-core-services, subject libra-core, sole audience libra-media-internal,
     purpose service-access, nonblank jti of at most 128 characters, iat and exp,
@@ -28,7 +28,7 @@ paths:
         '404': [NOT_FOUND]
         '409': [IDEMPOTENCY_CONFLICT, UPLOAD_STATE_CONFLICT]
         '410': [UPLOAD_EXPIRED]
-        '503': [CORE_UNAVAILABLE]
+        '503': [CORE_UNAVAILABLE, MEDIA_UNAVAILABLE]
       description: >-
         Requires core.media.uploads:write. Media verifies the binding through
         Core's existing private binding-read contract, including candidate=true
@@ -62,6 +62,7 @@ paths:
         '401': [AUTHENTICATION_REQUIRED]
         '403': [ACCESS_DENIED]
         '404': [NOT_FOUND]
+        '503': [MEDIA_UNAVAILABLE]
       description: Requires core.media.uploads:read.
       parameters:
         - $ref: '#/components/parameters/UploadId'
@@ -84,7 +85,7 @@ paths:
         '404': [NOT_FOUND]
         '409': [UPLOAD_STATE_CONFLICT]
         '410': [UPLOAD_EXPIRED]
-        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE]
+        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE, MEDIA_UNAVAILABLE]
       description: >-
         Requires core.media.uploads:write. URL lifetime is at most 15 minutes
         and never exceeds the original one-hour session expiry. Reissue does not
@@ -94,6 +95,8 @@ paths:
         and checksum bind the payload; GET, HEAD, DELETE and listing are not granted.
         Expiry rejects new requests but does not cancel an already admitted write.
         Completion and cleanup must not infer immutability from expiry alone.
+        Media rechecks OPEN and expiry after signing before returning the grant.
+        A concurrent completion after that check cannot revoke the existing grant.
       parameters:
         - $ref: '#/components/parameters/UploadId'
       responses:
@@ -118,13 +121,17 @@ paths:
         '404': [NOT_FOUND]
         '409': [UPLOAD_STATE_CONFLICT, SOURCE_MISSING]
         '410': [UPLOAD_EXPIRED]
-        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE]
+        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE, MEDIA_UNAVAILABLE]
       description: >-
         Requires core.media.uploads:write. A duplicate after SUBMITTED returns
         the same job even if the original session expiry has passed. The worker
         independently verifies bytes and SHA-256 before selecting immutable source.
         A first completion rechecks the exact current Core candidate; a duplicate
         completion reads the already committed job without creating more work.
+        First admission checks expiry after acquiring the upload row lock.
+        A database failure returns sanitized 503 MEDIA_UNAVAILABLE. If the
+        response is lost after commit, retrying returns the original durable job
+        without increasing attemptCount. Acceptance does not freeze staging.
       parameters:
         - $ref: '#/components/parameters/UploadId'
       responses:
@@ -231,7 +238,7 @@ components:
         Sanitized Problem Details. 400 INVALID_REQUEST; 401 invalid service token;
         403 wrong scope; 404 missing upload or mismatched Core binding;
         409 IDEMPOTENCY_CONFLICT, SOURCE_MISSING or UPLOAD_STATE_CONFLICT;
-        410 UPLOAD_EXPIRED; 503 CORE_UNAVAILABLE or STORAGE_UNAVAILABLE.
+        410 UPLOAD_EXPIRED; 503 CORE_UNAVAILABLE, STORAGE_UNAVAILABLE or MEDIA_UNAVAILABLE.
         Failure never reports a signed URL, object key or raw exception.
       content:
         application/problem+json:

@@ -1,6 +1,5 @@
 package com.libra.streaming.media.upload.infrastructure;
 
-import java.time.Instant;
 import java.util.UUID;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -17,6 +16,6 @@ public class MediaSecurityQueueProbe {
 
     public void queue(MediaPersistenceService.Ensure command) {
         transaction.executeWithoutResult(status -> store.queue(command.uploadId(), command.assetId(),
-                command.assetVersion(), UUID.randomUUID(), Instant.now()));
+                command.assetVersion(), UUID.randomUUID()));
     }
 }
