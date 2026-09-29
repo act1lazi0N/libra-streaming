@@ -133,7 +133,8 @@ Content-Type: application/json
 
 The internal ensure request carries the same requestId, tuple, length, digest and
 expiry. A URL response contains `method: PUT`, a 15-minute-or-shorter `expiresAt`,
-and `requiredHeaders: {"Content-Type":"video/mp4"}`. After direct PUT, complete
+and `requiredHeaders` containing `Content-Type: video/mp4` and the base64
+`x-amz-checksum-sha256` value for the declared digest. After direct PUT, complete
 returns `202` with `uploadState: SUBMITTED`, `assetState: QUEUED`, the stable
 `jobId`, and `attemptCount: 0`. GET may later return PROCESSING, FAILED or READY.
 The only readiness wire event is the existing `MediaAssetStateChanged` event with

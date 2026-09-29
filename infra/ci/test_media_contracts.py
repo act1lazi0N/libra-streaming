@@ -1,4 +1,5 @@
 """Executable M01 examples; this does not test HTTP or Media runtime behavior."""
+import base64
 import unittest
 from pathlib import Path
 
@@ -52,7 +53,9 @@ class MediaContractExamplesTest(unittest.TestCase):
     def test_url_and_problem_examples(self):
         url = {"uploadId": UPLOAD, "method": "PUT",
                "url": "http://localhost:8333/libra-source/staging/example?X-Amz-Signature=example",
-               "expiresAt": "2026-09-24T08:15:00Z", "requiredHeaders": {"Content-Type": "video/mp4"}}
+               "expiresAt": "2026-09-24T08:15:00Z",
+               "requiredHeaders": {"Content-Type": "video/mp4",
+                                   "x-amz-checksum-sha256": base64.b64encode(bytes.fromhex("a" * 64)).decode("ascii")}}
         problem = {"type": "about:blank", "title": "Gone", "status": 410,
                    "detail": "Gone.", "code": "UPLOAD_EXPIRED",
                    "correlationId": "66666666-6666-4666-8666-666666666666"}
