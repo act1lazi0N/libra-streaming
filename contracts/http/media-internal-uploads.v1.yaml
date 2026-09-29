@@ -1,0 +1,238 @@
+openapi: 3.1.0
+info:
+  title: LIBRA Media private upload control
+  version: 1.0.0
+  description: >-
+    M11 implements private ensure, status read and signed upload URL issuance;
+    completion remains planned. The private Core service
+    JWT uses a dedicated RSA key, RS256 and configured kid; exact issuer
+    libra-core-services, subject libra-core, sole audience libra-media-internal,
+    purpose service-access, nonblank jti of at most 128 characters, iat and exp,
+    zero leeway and at most 60 seconds lifetime. Upload control and
+    playback/identity credentials are never interchangeable. Public ingress must
+    block /api/media/internal/ before these routes are enabled.
+servers:
+  - url: http://media:8082
+security:
+  - coreServiceBearer: []
+paths:
+  /internal/v1/uploads/{uploadId}:
+    put:
+      operationId: ensureUpload
+      summary: Idempotently ensure a Media upload session for Core's exact candidate binding
+      x-required-scope: 'core.media.uploads:write'
+      x-error-codes:
+        '400': [INVALID_REQUEST]
+        '401': [AUTHENTICATION_REQUIRED]
+        '403': [ACCESS_DENIED]
+        '404': [NOT_FOUND]
+        '409': [IDEMPOTENCY_CONFLICT, UPLOAD_STATE_CONFLICT]
+        '410': [UPLOAD_EXPIRED]
+        '503': [CORE_UNAVAILABLE]
+      description: >-
+        Requires core.media.uploads:write. Media verifies the binding through
+        Core's existing private binding-read contract, including candidate=true
+        and the exact content/binding/asset/version tuple. Same uploadId and
+        identical fields return the same session; changed fields return 409.
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnsureUpload' }
+      responses:
+        '201':
+          description: New durable session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaStatus' }
+        '200':
+          description: Existing identical session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaStatus' }
+        default: { $ref: '#/components/responses/Problem' }
+    get:
+      operationId: readUpload
+      summary: Read current Media status, scoped to the Core service
+      x-required-scope: 'core.media.uploads:read'
+      x-error-codes:
+        '400': [INVALID_REQUEST]
+        '401': [AUTHENTICATION_REQUIRED]
+        '403': [ACCESS_DENIED]
+        '404': [NOT_FOUND]
+      description: Requires core.media.uploads:read.
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      responses:
+        '200':
+          description: Current sanitized status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaStatus' }
+        default: { $ref: '#/components/responses/Problem' }
+  /internal/v1/uploads/{uploadId}/upload-url:
+    post:
+      operationId: issueUploadUrl
+      summary: Sign PUT to the same staging key while the session is OPEN
+      x-required-scope: 'core.media.uploads:write'
+      x-error-codes:
+        '400': [INVALID_REQUEST]
+        '401': [AUTHENTICATION_REQUIRED]
+        '403': [ACCESS_DENIED]
+        '404': [NOT_FOUND]
+        '409': [UPLOAD_STATE_CONFLICT]
+        '410': [UPLOAD_EXPIRED]
+        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE]
+      description: >-
+        Requires core.media.uploads:write. URL lifetime is at most 15 minutes
+        and never exceeds the original one-hour session expiry. Reissue does not
+        extend that expiry. Media rechecks the exact current Core candidate;
+        unavailable binding authority returns 503 without a URL. The URL may
+        overwrite staging, so staging is not a committed source. The signed length
+        and checksum bind the payload; GET, HEAD, DELETE and listing are not granted.
+        Expiry rejects new requests but does not cancel an already admitted write.
+        Completion and cleanup must not infer immutability from expiry alone.
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      responses:
+        '200':
+          description: Ephemeral private-staging PUT credential; no-store
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadUrl' }
+        default: { $ref: '#/components/responses/Problem' }
+  /internal/v1/uploads/{uploadId}/complete:
+    post:
+      operationId: completeUpload
+      summary: Confirm staging exists and insert exactly one durable processing job
+      x-required-scope: 'core.media.uploads:write'
+      x-error-codes:
+        '400': [INVALID_REQUEST]
+        '401': [AUTHENTICATION_REQUIRED]
+        '403': [ACCESS_DENIED]
+        '404': [NOT_FOUND]
+        '409': [UPLOAD_STATE_CONFLICT, SOURCE_MISSING]
+        '410': [UPLOAD_EXPIRED]
+        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE]
+      description: >-
+        Requires core.media.uploads:write. A duplicate after SUBMITTED returns
+        the same job even if the original session expiry has passed. The worker
+        independently verifies bytes and SHA-256 before selecting immutable source.
+        A first completion rechecks the exact current Core candidate; a duplicate
+        completion reads the already committed job without creating more work.
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      responses:
+        '202':
+          description: Job accepted; READY is not implied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaStatus' }
+        default: { $ref: '#/components/responses/Problem' }
+components:
+  securitySchemes:
+    coreServiceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Dedicated Core-to-Media service identity; per-operation read/write scope.
+  parameters:
+    UploadId:
+      name: uploadId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    EnsureUpload:
+      type: object
+      additionalProperties: false
+      required: [requestId, contentId, bindingId, assetId, assetVersion, byteLength, sha256, expiresAt]
+      properties:
+        requestId: { type: string, format: uuid }
+        contentId: { type: string, format: uuid }
+        bindingId: { type: string, format: uuid }
+        assetId: { type: string, format: uuid }
+        assetVersion: { type: integer, format: int64, minimum: 1 }
+        byteLength: { type: integer, format: int64, minimum: 1, maximum: 268435456 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        expiresAt: { type: string, format: date-time }
+    MediaStatus:
+      type: object
+      additionalProperties: false
+      required: [uploadId, contentId, bindingId, assetId, assetVersion, uploadState, assetState, jobId, attemptCount, failureCode, expiresAt]
+      properties:
+        uploadId: { type: string, format: uuid }
+        contentId: { type: string, format: uuid }
+        bindingId: { type: string, format: uuid }
+        assetId: { type: string, format: uuid }
+        assetVersion: { type: integer, format: int64, minimum: 1 }
+        uploadState: { type: string, enum: [OPEN, SUBMITTED, EXPIRED] }
+        assetState: { type: string, enum: [UPLOADING, QUEUED, PROCESSING, READY, FAILED] }
+        jobId: { type: [string, 'null'], format: uuid }
+        attemptCount: { type: integer, minimum: 0, maximum: 3 }
+        failureCode:
+          type: [string, 'null']
+          enum: [null, UPLOAD_EXPIRED, SOURCE_MISSING, SIZE_MISMATCH, CHECKSUM_MISMATCH, UNSUPPORTED_MEDIA, CORRUPT_INPUT, PROCESSING_FAILED, RETRY_EXHAUSTED]
+        expiresAt: { type: string, format: date-time }
+      allOf:
+        - if: { properties: { uploadState: { const: OPEN } } }
+          then:
+            properties:
+              assetState: { const: UPLOADING }
+              jobId: { type: 'null' }
+              attemptCount: { const: 0 }
+              failureCode: { type: 'null' }
+        - if: { properties: { uploadState: { const: SUBMITTED } } }
+          then:
+            properties:
+              assetState: { enum: [QUEUED, PROCESSING, READY, FAILED] }
+              jobId: { type: string, format: uuid }
+        - if: { properties: { uploadState: { const: EXPIRED } } }
+          then:
+            properties:
+              assetState: { const: FAILED }
+              jobId: { type: 'null' }
+              attemptCount: { const: 0 }
+              failureCode: { const: UPLOAD_EXPIRED }
+        - if: { properties: { assetState: { const: FAILED } } }
+          then:
+            properties:
+              failureCode: { type: string }
+        - if: { properties: { assetState: { const: READY } } }
+          then:
+            properties:
+              failureCode: { type: 'null' }
+    UploadUrl:
+      type: object
+      additionalProperties: false
+      required: [uploadId, method, url, expiresAt, requiredHeaders]
+      properties:
+        uploadId: { type: string, format: uuid }
+        method: { type: string, const: PUT }
+        url: { type: string, format: uri, pattern: '^https?://' }
+        expiresAt: { type: string, format: date-time }
+        requiredHeaders:
+          type: object
+          additionalProperties: false
+          required: [Content-Type, x-amz-checksum-sha256]
+          properties:
+            Content-Type: { type: string, const: video/mp4 }
+            x-amz-checksum-sha256: { type: string, minLength: 44, maxLength: 44 }
+    Problem:
+      $ref: './core-foundation.v1.yaml#/components/schemas/Problem'
+  responses:
+    Problem:
+      description: >-
+        Sanitized Problem Details. 400 INVALID_REQUEST; 401 invalid service token;
+        403 wrong scope; 404 missing upload or mismatched Core binding;
+        409 IDEMPOTENCY_CONFLICT, SOURCE_MISSING or UPLOAD_STATE_CONFLICT;
+        410 UPLOAD_EXPIRED; 503 CORE_UNAVAILABLE or STORAGE_UNAVAILABLE.
+        Failure never reports a signed URL, object key or raw exception.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }

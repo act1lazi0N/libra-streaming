@@ -1,4 +1,4 @@
-# Core watchlist and community (Milestone 6)
+# Core: Watchlist and community (Milestone 06)
 
 Core owns profile watchlists and account-level reviews. The versioned
 [OpenAPI contract](../contracts/http/core-community.v1.json) uses `/v1` internally

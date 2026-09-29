@@ -1,6 +1,6 @@
 package com.libra.streaming.core.playback;
 
-import com.libra.streaming.core.entitlement.EntitlementService;
+import com.libra.streaming.core.entitlement.application.EntitlementOperations;
 import com.libra.streaming.core.identity.IdentityAccess;
 import com.libra.streaming.core.identity.IdentityPrincipal;
 import java.sql.Timestamp;
@@ -14,10 +14,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class NextEpisodeService {
     private final JdbcTemplate jdbc;
     private final IdentityAccess access;
-    private final EntitlementService entitlements;
+    private final EntitlementOperations entitlements;
     private final Clock clock;
 
-    public NextEpisodeService(JdbcTemplate jdbc, IdentityAccess access, EntitlementService entitlements, Clock clock) {
+    public NextEpisodeService(JdbcTemplate jdbc, IdentityAccess access, EntitlementOperations entitlements, Clock clock) {
         this.jdbc = jdbc; this.access = access; this.entitlements = entitlements; this.clock = clock;
     }
 

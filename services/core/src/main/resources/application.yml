@@ -64,6 +64,12 @@ management:
       show-details: never
 
 libra:
+  media-control:
+    enabled: ${CORE_MEDIA_CONTROL_ENABLED:false}
+    base-url: ${CORE_MEDIA_CONTROL_BASE_URL:}
+    private-key: ${CORE_MEDIA_CONTROL_PRIVATE_KEY:}
+    public-key: ${CORE_MEDIA_CONTROL_PUBLIC_KEY:}
+    key-id: ${CORE_MEDIA_CONTROL_KEY_ID:}
   integration:
     publisher-enabled: ${CORE_OUTBOX_PUBLISHER_ENABLED:true}
     dlt-listener-enabled: ${CORE_DLT_LISTENER_ENABLED:true}

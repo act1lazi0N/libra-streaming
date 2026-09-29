@@ -1,0 +1,98 @@
+# Disposable packaged Media with the real local gateway and ingress configurations.
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: libra_media
+      POSTGRES_PASSWORD: ${LIBRA_M06_DB_PASSWORD:?Run check-media-m06.ps1}
+      POSTGRES_DB: libra_media
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U libra_media -d libra_media"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.46
+    entrypoint: ["/bin/sh", "/etc/libra/start-private.sh"]
+    environment:
+      MEDIA_STORAGE_ACCESS_KEY: ${LIBRA_M06_S3_ACCESS:?Run check-media-m06.ps1}
+      MEDIA_STORAGE_SECRET_KEY: ${LIBRA_M06_S3_SECRET:?Run check-media-m06.ps1}
+      S3_BUCKET: libra-source,libra-hls
+    volumes:
+      - ../seaweedfs/start-private.sh:/etc/libra/start-private.sh:ro
+    tmpfs:
+      - /run/media-secrets:rw,nosuid,noexec,size=1m,mode=0700
+    networks: [storage-private]
+
+  s3-gateway:
+    image: nginx:1.29.3-alpine
+    volumes:
+      - ../nginx/s3-gateway.conf:/etc/nginx/nginx.conf:ro
+    ports: ["127.0.0.1::8333"]
+    networks: [default, storage-private]
+    depends_on: [seaweedfs]
+
+  stubs:
+    image: nginx:1.29.3-alpine
+    volumes:
+      - ./media-m06-stubs.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      default:
+        aliases: [core, web, recommendation-analytics]
+
+  nginx:
+    image: nginx:1.29.3-alpine
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports: ["127.0.0.1::80"]
+    depends_on: [stubs, media]
+
+  probe:
+    image: nginx:1.29.3-alpine
+    profiles: [probe]
+    entrypoint: ["/bin/sh", "/probe.sh"]
+    environment:
+      PROBE_ACCESS: ${LIBRA_M06_S3_ACCESS:?Run check-media-m06.ps1}
+      PROBE_SECRET: ${LIBRA_M06_S3_SECRET:?Run check-media-m06.ps1}
+      PRIVATE_STORAGE_IP: ${LIBRA_M06_PRIVATE_IP:-}
+    volumes:
+      - ./probe-media-m06.sh:/probe.sh:ro
+
+  media:
+    build: { context: ../.., dockerfile: services/media/Dockerfile }
+    environment:
+      MEDIA_DB_URL: jdbc:postgresql://postgres:5432/libra_media
+      MEDIA_DB_USERNAME: libra_media
+      MEDIA_DB_PASSWORD: ${LIBRA_M06_DB_PASSWORD:?Run check-media-m06.ps1}
+      MEDIA_STORAGE_ENABLED: true
+      MEDIA_S3_INTERNAL_ENDPOINT: http://s3-gateway:8333
+      MEDIA_S3_BROWSER_ENDPOINT: http://localhost:8333
+      MEDIA_BROWSER_ORIGIN: http://localhost:8080
+      MEDIA_S3_REGION: us-east-1
+      MEDIA_S3_ACCESS_KEY: ${LIBRA_M06_S3_ACCESS:?Run check-media-m06.ps1}
+      MEDIA_S3_SECRET_KEY: ${LIBRA_M06_S3_SECRET:?Run check-media-m06.ps1}
+      MEDIA_SOURCE_BUCKET: libra-source
+      MEDIA_HLS_BUCKET: libra-hls
+      MEDIA_STAGING_PREFIX: staging/
+      MEDIA_FROZEN_PREFIX: sources/
+      MEDIA_HLS_PREFIX: hls/
+      MEDIA_S3_CONNECT_TIMEOUT: 1s
+      MEDIA_S3_REQUEST_TIMEOUT: 3s
+      MEDIA_MAX_OBJECT_BYTES: 268435456
+      MEDIA_SCRATCH_DIRECTORY: /tmp/media
+      MEDIA_S3_ALLOW_HTTP: true
+      MEDIA_STORAGE_INITIALIZE_BUCKETS: true
+      MEDIA_STORAGE_PROBE_ON_STARTUP: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=536870912,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      s3-gateway: { condition: service_started }
+
+networks:
+  storage-private:
+    internal: true

@@ -13,9 +13,9 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import com.libra.streaming.core.integration.outbox.CoreEventTopic;
-import com.libra.streaming.core.integration.outbox.EventEnvelope;
-import com.libra.streaming.core.integration.outbox.OutboxWriter;
+import com.libra.streaming.core.events.domain.CoreEventTopic;
+import com.libra.streaming.core.events.infrastructure.EventEnvelope;
+import com.libra.streaming.core.events.infrastructure.OutboxWriter;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -114,7 +114,7 @@ class FoundationIntegrationTest {
     @Test
     void bootRunsProductionMigrationOnEmptyPostgresAndValidatesItOnRerun() {
         assertThat(jdbc.queryForObject("SELECT current_database()", String.class)).isEqualTo("libra_core_test");
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("7");
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("8");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();

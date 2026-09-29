@@ -1,4 +1,6 @@
-# Core verification evidence — 2026-09-21
+# Core: Verification evidence (Milestone 08)
+
+Verification date: 2026-09-21.
 
 Local evidence for milestone 8 on `features/core-features`, based on commit
 `fa92582` plus the milestone 8 working-tree changes. This is a dated snapshot,

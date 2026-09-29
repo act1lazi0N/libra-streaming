@@ -1,7 +1,7 @@
 package com.libra.streaming.core.playback;
 
 import com.libra.streaming.core.api.DomainException;
-import com.libra.streaming.core.entitlement.EntitlementService.EligibleContent;
+import com.libra.streaming.core.entitlement.application.EntitlementOperations.EligibleContent;
 import com.libra.streaming.core.identity.IdentityPrincipal;
 import java.sql.Timestamp;
 import java.time.Instant;

@@ -1,4 +1,4 @@
-# Core identity (Milestone 2)
+# Core: Identity (Milestone 02)
 
 Core implements registration, login, rotating refresh sessions, session revocation,
 email verification, password recovery/change, USER/ADMIN authorization, and one-time

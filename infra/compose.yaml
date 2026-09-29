@@ -56,17 +56,27 @@ services:
 
   seaweedfs:
     image: chrislusf/seaweedfs:4.46
-    command: ["mini", "-dir=/data"]
+    entrypoint: ["/bin/sh", "/etc/libra/start-private.sh"]
     environment:
-      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY:-libra}
-      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:-libra_local_secret}
+      MEDIA_STORAGE_ACCESS_KEY: ${SEAWEEDFS_ACCESS_KEY:?Set a private storage access key}
+      MEDIA_STORAGE_SECRET_KEY: ${SEAWEEDFS_SECRET_KEY:?Set a private storage secret key}
       S3_BUCKET: libra-source,libra-hls
-    ports:
-      - "8333:8333"
-      - "8888:8888"
-      - "9333:9333"
     volumes:
       - seaweedfs-data:/data
+      - ./seaweedfs/start-private.sh:/etc/libra/start-private.sh:ro
+    tmpfs:
+      - /run/media-secrets:rw,nosuid,noexec,size=1m,mode=0700
+    networks: [storage-private]
+    restart: unless-stopped
+
+  s3-gateway:
+    image: nginx:1.29.3-alpine
+    ports:
+      - "127.0.0.1:8333:8333"
+    volumes:
+      - ./nginx/s3-gateway.conf:/etc/nginx/nginx.conf:ro
+    networks: [default, storage-private]
+    depends_on: [seaweedfs]
     restart: unless-stopped
 
   core:
@@ -96,6 +106,11 @@ services:
       CORE_MEDIA_SERVICE_AUTH_ENABLED: ${CORE_MEDIA_SERVICE_AUTH_ENABLED:-false}
       CORE_MEDIA_SERVICE_PUBLIC_KEY: ${CORE_MEDIA_SERVICE_PUBLIC_KEY:-}
       CORE_MEDIA_SERVICE_KEY_ID: ${CORE_MEDIA_SERVICE_KEY_ID:-}
+      CORE_MEDIA_CONTROL_ENABLED: ${CORE_MEDIA_CONTROL_ENABLED:-false}
+      CORE_MEDIA_CONTROL_BASE_URL: ${CORE_MEDIA_CONTROL_BASE_URL:-http://media:8082}
+      CORE_MEDIA_CONTROL_PRIVATE_KEY: ${CORE_MEDIA_CONTROL_PRIVATE_KEY:-}
+      CORE_MEDIA_CONTROL_PUBLIC_KEY: ${CORE_MEDIA_CONTROL_PUBLIC_KEY:-}
+      CORE_MEDIA_CONTROL_KEY_ID: ${CORE_MEDIA_CONTROL_KEY_ID:-}
       CORE_ANALYTICS_ENABLED: ${CORE_ANALYTICS_ENABLED:-false}
       CORE_ANALYTICS_BASE_URL: ${CORE_ANALYTICS_BASE_URL:-http://recommendation-analytics:8083}
       CORE_ANALYTICS_PRIVATE_KEY: ${CORE_ANALYTICS_PRIVATE_KEY:-}
@@ -113,12 +128,44 @@ services:
       MEDIA_DB_URL: jdbc:postgresql://postgres:5432/libra_media
       MEDIA_DB_USERNAME: libra_media
       MEDIA_DB_PASSWORD: media_local
-      MEDIA_S3_ENDPOINT: http://seaweedfs:8333
+      MEDIA_STORAGE_ENABLED: true
+      MEDIA_CORE_SERVICE_AUTH_ENABLED: ${MEDIA_CORE_SERVICE_AUTH_ENABLED:-false}
+      MEDIA_CORE_SERVICE_PUBLIC_KEY: ${CORE_MEDIA_CONTROL_PUBLIC_KEY:-}
+      MEDIA_CORE_SERVICE_KEY_ID: ${CORE_MEDIA_CONTROL_KEY_ID:-}
+      MEDIA_CORE_BINDING_ENABLED: ${MEDIA_CORE_BINDING_ENABLED:-false}
+      MEDIA_CORE_BINDING_BASE_URL: http://core:8081
+      MEDIA_CORE_BINDING_PRIVATE_KEY: ${MEDIA_CORE_BINDING_PRIVATE_KEY:-}
+      MEDIA_CORE_BINDING_PUBLIC_KEY: ${MEDIA_CORE_BINDING_PUBLIC_KEY:-}
+      MEDIA_CORE_BINDING_KEY_ID: ${MEDIA_CORE_BINDING_KEY_ID:-}
+      MEDIA_CORE_BINDING_ALLOW_HTTP: true
+      MEDIA_S3_INTERNAL_ENDPOINT: http://s3-gateway:8333
+      MEDIA_S3_BROWSER_ENDPOINT: ${MEDIA_S3_BROWSER_ENDPOINT:-http://localhost:8333}
+      MEDIA_BROWSER_ORIGIN: ${MEDIA_BROWSER_ORIGIN:-http://localhost:8080}
+      MEDIA_S3_REGION: us-east-1
+      MEDIA_S3_ACCESS_KEY: ${SEAWEEDFS_ACCESS_KEY:?Set a private storage access key}
+      MEDIA_S3_SECRET_KEY: ${SEAWEEDFS_SECRET_KEY:?Set a private storage secret key}
+      MEDIA_SOURCE_BUCKET: libra-source
+      MEDIA_HLS_BUCKET: libra-hls
+      MEDIA_STAGING_PREFIX: staging/
+      MEDIA_FROZEN_PREFIX: sources/
+      MEDIA_HLS_PREFIX: hls/
+      MEDIA_S3_CONNECT_TIMEOUT: 3s
+      MEDIA_S3_REQUEST_TIMEOUT: 30s
+      MEDIA_MAX_OBJECT_BYTES: 268435456
+      MEDIA_SCRATCH_DIRECTORY: /tmp/media
+      MEDIA_S3_ALLOW_HTTP: true
+      MEDIA_STORAGE_INITIALIZE_BUCKETS: ${MEDIA_STORAGE_INITIALIZE_BUCKETS:-false}
+      MEDIA_STORAGE_PROBE_ON_STARTUP: false
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=536870912,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
-      seaweedfs: { condition: service_started }
+      s3-gateway: { condition: service_started }
 
   recommendation-analytics:
     profiles: ["full"]
@@ -154,3 +201,7 @@ services:
 volumes:
   postgres-data:
   seaweedfs-data:
+
+networks:
+  storage-private:
+    internal: true

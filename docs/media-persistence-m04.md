@@ -1,0 +1,13 @@
+# Media: Persistence hardening (Milestone 04)
+
+This checkpoint hardens the local persistence primitives introduced in M03. Core still has no upload HTTP route, and Media still has no authenticated control endpoint, storage check, worker, or Kafka publisher.
+
+## Migration and ownership
+
+Core V8 is unchanged. The PostgreSQL fixture migrates an existing V7 database with an account, profile, auth session, published catalog binding, playback session, and watch history to V8. Flyway rerun and validation preserve those rows. Media's new V2 migration adds constraints after V1 rather than editing the earlier migration: active job stages require a lease, an outbox lease exists exactly in `LEASED`, and a master manifest key must sit beneath its output prefix. A separate fixture migrates retained Media V1 asset, upload, leased job, and pending outbox rows to V2, reruns Flyway, and validates the new output-key check.
+
+Core's reservation continues to acquire the account lock before the catalog row lock, matching `IdentityAccess`. A PostgreSQL fixture holds the catalog row and confirms the waiting reservation already holds its account row with `FOR UPDATE NOWAIT`. Two creator retries use independent Spring transactions and return the same intent/binding; stale catalog versions are rejected. Media's ensure insert uses PostgreSQL `ON CONFLICT DO NOTHING`, then rereads and compares the immutable fingerprint. A conflicting identity becomes a stable `UPLOAD_STATE_CONFLICT` or `IDEMPOTENCY_CONFLICT` domain code, and the transaction cannot leave an extra asset. The insert and queue repository writes require an existing transaction.
+
+Media queue locks the upload row first, then reads the upload/asset/job projection in a second statement. This matters at PostgreSQL `READ COMMITTED`: a join evaluated before a row-lock wait may not see the job committed by the first writer. The second read uses a new statement snapshot, so racing duplicate queue attempts return the same job. The queue also checks the exact asset tuple, upload/asset state, and original expiry before changing state. Conditional updates and the unique job constraint remain the database backstop.
+
+PostgreSQL fixtures race two ensure calls and two queue calls on separate threads/transactions, check one upload and job, reject invalid lease/output state, and force an outbox-version collision after an asset state update. That failure rolls the state update back with the outbox insert. These are local database transaction guarantees; the eventual processing service must use the same short-transaction pattern and produce a full contract-valid event. No HTTP response, cross-database atomicity, object integrity, worker lease fencing, or live Kafka delivery is claimed here.

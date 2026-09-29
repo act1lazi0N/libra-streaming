@@ -2,7 +2,7 @@ package com.libra.streaming.core.integration.media;
 
 import com.libra.streaming.core.catalog.MediaProjectionService.Change;
 import com.libra.streaming.core.catalog.CatalogModels.MediaState;
-import com.libra.streaming.core.integration.outbox.EventEnvelope;
+import com.libra.streaming.core.events.infrastructure.EventEnvelope;
 import jakarta.validation.Validator;
 import java.nio.charset.StandardCharsets;
 import org.springframework.stereotype.Component;

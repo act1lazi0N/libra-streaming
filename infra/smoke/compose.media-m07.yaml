@@ -1,0 +1,15 @@
+# Ingress-only fixture. All upstreams are explicit HTTP stubs, not business services.
+services:
+  stubs:
+    image: nginx:1.29.3-alpine
+    volumes:
+      - ./media-m07-stubs.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      default:
+        aliases: [core, media, web, recommendation-analytics]
+  nginx:
+    image: nginx:1.29.3-alpine
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports: ["127.0.0.1::80"]
+    depends_on: [stubs]

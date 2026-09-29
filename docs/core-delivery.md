@@ -1,4 +1,4 @@
-# Milestone 8: Core CI, smoke and operational acceptance
+# Core: CI, smoke and operational acceptance (Milestone 08)
 
 This milestone packages the implemented Core V1 verification into repeatable
 checks. It does not expand Media, Analytics or frontend implementation. No new

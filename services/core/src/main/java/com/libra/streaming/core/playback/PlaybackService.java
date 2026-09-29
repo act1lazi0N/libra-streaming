@@ -1,13 +1,13 @@
 package com.libra.streaming.core.playback;
 
 import com.libra.streaming.core.api.DomainException;
-import com.libra.streaming.core.entitlement.EntitlementService;
-import com.libra.streaming.core.entitlement.EntitlementService.EligibleContent;
-import com.libra.streaming.core.history.HistoryService;
+import com.libra.streaming.core.entitlement.application.EntitlementOperations;
+import com.libra.streaming.core.entitlement.application.EntitlementOperations.EligibleContent;
+import com.libra.streaming.core.history.application.HistoryOperations;
 import com.libra.streaming.core.identity.IdentityAccess;
 import com.libra.streaming.core.identity.IdentityPrincipal;
-import com.libra.streaming.core.integration.outbox.CoreEventTopic;
-import com.libra.streaming.core.integration.outbox.DomainEvents;
+import com.libra.streaming.core.events.domain.CoreEventTopic;
+import com.libra.streaming.core.events.application.EventPort;
 import jakarta.validation.Validator;
 import java.time.Clock;
 import java.time.Duration;
@@ -19,16 +19,16 @@ import static com.libra.streaming.core.playback.PlaybackModels.*;
 @Service
 public class PlaybackService {
     private final IdentityAccess access;
-    private final EntitlementService entitlements;
+    private final EntitlementOperations entitlements;
     private final PlaybackStore store;
     private final PlaybackTickets tickets;
-    private final HistoryService history;
-    private final DomainEvents events;
+    private final HistoryOperations history;
+    private final EventPort events;
     private final Clock clock;
     private final Validator validator;
 
-    public PlaybackService(IdentityAccess access, EntitlementService entitlements, PlaybackStore store,
-            PlaybackTickets tickets, HistoryService history, DomainEvents events, Clock clock, Validator validator) {
+    public PlaybackService(IdentityAccess access, EntitlementOperations entitlements, PlaybackStore store,
+            PlaybackTickets tickets, HistoryOperations history, EventPort events, Clock clock, Validator validator) {
         this.access = access; this.entitlements = entitlements; this.store = store; this.tickets = tickets;
         this.history = history; this.events = events; this.clock = clock; this.validator = validator;
     }

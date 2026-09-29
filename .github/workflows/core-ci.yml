@@ -50,7 +50,10 @@ jobs:
       - name: Validate API and event contracts
         run: python infra/ci/check_contracts.py
       - name: Validate workstation Compose template
-        run: docker compose --env-file .env.example -f infra/compose.yaml config --quiet
+        run: |
+          export SEAWEEDFS_ACCESS_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          export SEAWEEDFS_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          docker compose --env-file .env.example -f infra/compose.yaml config --quiet
       - name: Packaged Core ingress and infrastructure smoke
         shell: pwsh
         run: ./infra/smoke/check-core.ps1 -Python python

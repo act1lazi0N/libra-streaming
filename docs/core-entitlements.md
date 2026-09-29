@@ -1,4 +1,4 @@
-# Core entitlement matrix (Milestone 4)
+# Core: Entitlement matrix (Milestone 04)
 
 `EntitlementService.requireEligible(actor, profileId, contentId)` centralizes Core's
 current eligibility policy. It returns an internal selection of the exact published

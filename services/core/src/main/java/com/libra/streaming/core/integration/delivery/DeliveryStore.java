@@ -1,6 +1,6 @@
 package com.libra.streaming.core.integration.delivery;
 
-import com.libra.streaming.core.integration.outbox.EventEnvelope;
+import com.libra.streaming.core.events.infrastructure.EventEnvelope;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.util.Optional;

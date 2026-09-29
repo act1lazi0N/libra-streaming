@@ -1,12 +1,14 @@
 package com.libra.streaming.core.entitlement;
 
+import com.libra.streaming.core.entitlement.infrastructure.EntitlementService;
+
 import com.libra.streaming.core.TestIdentityProperties;
 import com.libra.streaming.core.api.DomainException;
 import com.libra.streaming.core.catalog.*;
 import com.libra.streaming.core.identity.*;
-import com.libra.streaming.core.integration.outbox.EventEnvelope;
-import com.libra.streaming.core.profiles.ProfileService;
-import com.libra.streaming.core.subscriptions.SubscriptionService;
+import com.libra.streaming.core.events.infrastructure.EventEnvelope;
+import com.libra.streaming.core.profiles.infrastructure.ProfileService;
+import com.libra.streaming.core.subscriptions.infrastructure.SubscriptionService;
 import java.net.URI;
 import java.net.http.*;
 import java.sql.Timestamp;
