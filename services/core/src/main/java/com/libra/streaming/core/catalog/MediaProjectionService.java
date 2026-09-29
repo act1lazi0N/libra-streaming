@@ -1,6 +1,6 @@
 package com.libra.streaming.core.catalog;
 
-import com.libra.streaming.core.integration.outbox.EventEnvelope;
+import com.libra.streaming.core.events.infrastructure.EventEnvelope;
 import jakarta.validation.Validator;
 import jakarta.validation.constraints.*;
 import java.util.UUID;

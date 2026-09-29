@@ -1,5 +1,8 @@
 package com.libra.streaming.core.subscriptions;
 
+import com.libra.streaming.core.subscriptions.infrastructure.SubscriptionService;
+import com.libra.streaming.core.subscriptions.application.SubscriptionOperations;
+
 import com.libra.streaming.core.TestIdentityProperties;
 import com.libra.streaming.core.identity.IdentityPrincipal;
 import java.net.HttpCookie;
@@ -84,7 +87,7 @@ class SubscriptionIntegrationTest {
     }
 
     @Test void initialPurchaseReplayAndIntentionalRepurchaseHaveStableReceipts() {
-        assertThat(subscriptions.status(viewer)).isEqualTo(new SubscriptionService.StatusView("NONE", null, true));
+        assertThat(subscriptions.status(viewer)).isEqualTo(new SubscriptionOperations.StatusView("NONE", null, true));
         UUID key = UUID.randomUUID();
         var first = subscriptions.activate(viewer, key, PLAN);
         assertThat(first.simulated()).isTrue();
@@ -228,14 +231,14 @@ class SubscriptionIntegrationTest {
         return new IdentityPrincipal(id, sid, role, verified);
     }
 
-    private List<SubscriptionService.PurchaseView> race(Callable<SubscriptionService.PurchaseView> action, int threads) throws Exception {
+    private List<SubscriptionOperations.PurchaseView> race(Callable<SubscriptionOperations.PurchaseView> action, int threads) throws Exception {
         var barrier = new CyclicBarrier(threads);
         try (var pool = Executors.newFixedThreadPool(threads)) {
-            List<Future<SubscriptionService.PurchaseView>> futures = new ArrayList<>();
+            List<Future<SubscriptionOperations.PurchaseView>> futures = new ArrayList<>();
             for (int i = 0; i < threads; i++) {
                 futures.add(pool.submit(() -> { barrier.await(10, TimeUnit.SECONDS); return action.call(); }));
             }
-            List<SubscriptionService.PurchaseView> results = new ArrayList<>();
+            List<SubscriptionOperations.PurchaseView> results = new ArrayList<>();
             for (var future : futures) { results.add(future.get(20, TimeUnit.SECONDS)); }
             return results;
         }

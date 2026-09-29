@@ -2,7 +2,7 @@ package com.libra.streaming.core.playback;
 
 import com.libra.streaming.core.TestIdentityProperties;
 import com.libra.streaming.core.catalog.CatalogModels.Tier;
-import com.libra.streaming.core.entitlement.EntitlementService.EligibleContent;
+import com.libra.streaming.core.entitlement.application.EntitlementOperations.EligibleContent;
 import com.libra.streaming.core.identity.IdentityProperties;
 import com.nimbusds.jose.jwk.*;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;

@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
+import com.libra.streaming.core.profiles.application.ProfileOperations;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,11 +26,11 @@ public class IdentityAccountService {
     private final PasswordEncoder passwords;
     private final ObjectMapper mapper;
     private final Clock clock;
-    private final com.libra.streaming.core.profiles.ProfileService profiles;
+    private final ProfileOperations profiles;
 
     public IdentityAccountService(JdbcTemplate jdbc, IdentityStore accounts, IdentitySessionService sessions,
             IdentitySecrets secrets, IdentityProperties properties, PasswordEncoder passwords, ObjectMapper mapper, Clock clock,
-            com.libra.streaming.core.profiles.ProfileService profiles) {
+            ProfileOperations profiles) {
         this.jdbc = jdbc; this.accounts = accounts; this.sessions = sessions; this.secrets = secrets;
         this.properties = properties; this.passwords = passwords; this.mapper = mapper; this.clock = clock;
         this.profiles = profiles;

@@ -3,8 +3,8 @@ package com.libra.streaming.core.catalog;
 import com.libra.streaming.core.api.DomainException;
 import com.libra.streaming.core.identity.IdentityAccess;
 import com.libra.streaming.core.identity.IdentityPrincipal;
-import com.libra.streaming.core.integration.outbox.CoreEventTopic;
-import com.libra.streaming.core.integration.outbox.DomainEvents;
+import com.libra.streaming.core.events.domain.CoreEventTopic;
+import com.libra.streaming.core.events.application.EventPort;
 import jakarta.validation.Validator;
 import java.time.Clock;
 import java.sql.Timestamp;
@@ -21,12 +21,12 @@ public class CatalogService {
     private final JdbcTemplate jdbc;
     private final CatalogStore store;
     private final IdentityAccess access;
-    private final DomainEvents events;
+    private final EventPort events;
     private final Validator validator;
     private final Clock clock;
 
     public CatalogService(JdbcTemplate jdbc, CatalogStore store, IdentityAccess access,
-            DomainEvents events, Validator validator, Clock clock) {
+            EventPort events, Validator validator, Clock clock) {
         this.jdbc = jdbc; this.store = store; this.access = access;
         this.events = events; this.validator = validator; this.clock = clock;
     }

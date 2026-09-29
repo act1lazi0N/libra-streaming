@@ -13,9 +13,9 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import com.libra.streaming.core.integration.outbox.CoreEventTopic;
-import com.libra.streaming.core.integration.outbox.EventEnvelope;
-import com.libra.streaming.core.integration.outbox.OutboxWriter;
+import com.libra.streaming.core.events.domain.CoreEventTopic;
+import com.libra.streaming.core.events.infrastructure.EventEnvelope;
+import com.libra.streaming.core.events.infrastructure.OutboxWriter;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
