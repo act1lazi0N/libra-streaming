@@ -47,6 +47,6 @@ public class JdbcUploadAdapter implements UploadPersistence {
         return new UploadSnapshot(source.uploadId(), source.requestId(), source.contentId(),
                 source.bindingId(), source.assetId(), source.assetVersion(), source.byteLength(),
                 source.sha256(), source.uploadState(), source.assetState(), source.jobId(),
-                source.attemptCount(), source.expiresAt());
+                source.attemptCount(), source.failureCode(), source.expiresAt());
     }
 }

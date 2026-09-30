@@ -56,7 +56,7 @@ public class UploadControlController {
     private static Status view(UploadPersistence.UploadSnapshot snapshot) {
         return new Status(snapshot.uploadId(), snapshot.contentId(), snapshot.bindingId(), snapshot.assetId(),
                 snapshot.assetVersion(), snapshot.uploadState(), snapshot.assetState(), snapshot.jobId(),
-                snapshot.attemptCount(), null, snapshot.expiresAt());
+                snapshot.attemptCount(), snapshot.failureCode(), snapshot.expiresAt());
     }
 
     public record EnsureUpload(@NotNull UUID requestId, @NotNull UUID contentId, @NotNull UUID bindingId,

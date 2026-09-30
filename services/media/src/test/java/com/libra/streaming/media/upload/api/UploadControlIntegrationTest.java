@@ -65,6 +65,7 @@ class UploadControlIntegrationTest {
     @Autowired WebApplicationContext context;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired com.libra.streaming.media.processing.application.JobLeases leases;
     @MockitoBean StagingInspector staging;
     @MockitoSpyBean UploadGrantSigner signer;
     MockMvc mvc;
@@ -96,6 +97,25 @@ class UploadControlIntegrationTest {
     }
 
     @AfterAll static void stop() { BINDINGS.stop(0); }
+
+    @Test void workerStatusExposesAuthoritativeAttemptAndSanitizedPermanentFailure() throws Exception {
+        assertThat(ensure(body(command.byteLength())).getResponse().getStatus()).isEqualTo(201);
+        assertThat(complete().getResponse().getStatus()).isEqualTo(202);
+        var lease = leases.claim(java.time.Duration.ofSeconds(30)).orElseThrow();
+        String path = "/internal/v1/uploads/" + command.uploadId();
+        mvc.perform(get(path).header("Authorization", "Bearer " + token("core.media.uploads:read")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.assetState").value("PROCESSING"))
+                .andExpect(jsonPath("$.attemptCount").value(1)).andExpect(jsonPath("$.failureCode").isEmpty());
+        assertThat(leases.fail(lease, com.libra.streaming.media.processing.domain.ProcessingFailure.CORRUPT_INPUT)).isTrue();
+        mvc.perform(get(path).header("Authorization", "Bearer " + token("core.media.uploads:read")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.assetState").value("FAILED"))
+                .andExpect(jsonPath("$.failureCode").value("CORRUPT_INPUT"))
+                .andExpect(jsonPath("$.jobId").value(lease.jobId().toString()));
+        var duplicate = complete().getResponse();
+        assertThat(duplicate.getStatus()).isEqualTo(202);
+        assertThat(mapper.readTree(duplicate.getContentAsString()).get("failureCode").asText()).isEqualTo("CORRUPT_INPUT");
+        assertThat(count("media_jobs")).isEqualTo(1);
+    }
 
     @Test void exactCandidateProvisionsOnceAndChangedIdentityConflicts() throws Exception {
         String path = "/internal/v1/uploads/" + command.uploadId();

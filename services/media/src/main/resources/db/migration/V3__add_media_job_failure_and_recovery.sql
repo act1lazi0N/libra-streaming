@@ -1,0 +1,6 @@
+ALTER TABLE media_jobs ADD COLUMN failure_code VARCHAR(24)
+    CHECK (failure_code IN ('SOURCE_MISSING', 'SIZE_MISMATCH', 'CHECKSUM_MISMATCH',
+        'UNSUPPORTED_MEDIA', 'CORRUPT_INPUT', 'PROCESSING_FAILED', 'RETRY_EXHAUSTED'));
+
+CREATE INDEX ix_media_jobs_recovery ON media_jobs(lease_until, id)
+    WHERE stage IN ('CLAIMED', 'SOURCE_SELECTED', 'TRANSCODING', 'FINALIZING');

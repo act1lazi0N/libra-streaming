@@ -16,7 +16,7 @@ public interface UploadPersistence {
 
     record UploadSnapshot(UUID uploadId, UUID requestId, UUID contentId, UUID bindingId, UUID assetId,
             long assetVersion, long byteLength, String sha256, String uploadState, String assetState,
-            UUID jobId, int attemptCount, Instant expiresAt) {
+            UUID jobId, int attemptCount, String failureCode, Instant expiresAt) {
         public UploadDescriptor command() {
             return new UploadDescriptor(uploadId, requestId, contentId, bindingId, assetId,
                     assetVersion, byteLength, sha256, expiresAt);

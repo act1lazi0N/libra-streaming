@@ -120,7 +120,7 @@ class MediaStorageIntegrationTest {
         return new UploadPersistence.UploadSource(
                 new UploadPersistence.UploadSnapshot(id,
                         UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
-                        1024, "a".repeat(64), "OPEN", "UPLOADING", null, 0, Instant.now().plusSeconds(3600)), key);
+                        1024, "a".repeat(64), "OPEN", "UPLOADING", null, 0, null, Instant.now().plusSeconds(3600)), key);
     }
 
     @Test

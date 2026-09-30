@@ -39,7 +39,10 @@ with independent random values before starting Compose; see
 dedicated Core-to-Media identity and bounded internal client. Admin upload,
 signed staging PUT, and [durable completion](docs/media-completion-m13.md) are
 implemented, with [completion race and failure hardening](docs/media-completion-hardening-m14.md).
-Worker processing and immutable source selection remain subsequent milestones.
+[Bounded worker and lease lifecycle](docs/media-worker-m15.md) are implemented
+with PostgreSQL ownership, renewal, restart recovery and three-attempt retries.
+The worker is disabled by default and requires a real handler before enabling;
+immutable source selection and media processing remain subsequent milestones.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

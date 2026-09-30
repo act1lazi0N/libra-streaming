@@ -35,6 +35,13 @@ logging:
     software.amazon.awssdk: OFF # SDK diagnostics can contain signed requests and remote error bodies.
 libra:
   media:
+    worker:
+      enabled: ${MEDIA_WORKER_ENABLED:false}
+      poll-interval: ${MEDIA_WORKER_POLL_INTERVAL:1s}
+      lease-duration: ${MEDIA_WORKER_LEASE_DURATION:30s}
+      renew-interval: ${MEDIA_WORKER_RENEW_INTERVAL:5s}
+      retry-delay: ${MEDIA_WORKER_RETRY_DELAY:10s}
+      shutdown-timeout: ${MEDIA_WORKER_SHUTDOWN_TIMEOUT:10s}
     core-binding:
       enabled: ${MEDIA_CORE_BINDING_ENABLED:false}
       base-url: ${MEDIA_CORE_BINDING_BASE_URL:}

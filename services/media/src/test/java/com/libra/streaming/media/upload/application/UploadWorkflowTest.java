@@ -17,7 +17,7 @@ class UploadWorkflowTest {
         var open = openSnapshot();
         var submitted = new UploadPersistence.UploadSnapshot(open.uploadId(), open.requestId(), open.contentId(),
                 open.bindingId(), open.assetId(), 1, 1024, open.sha256(), "SUBMITTED", "QUEUED",
-                UUID.randomUUID(), 0, open.expiresAt());
+                UUID.randomUUID(), 0, null, open.expiresAt());
         when(uploads.read(open.uploadId())).thenReturn(open, submitted);
         when(uploads.grantSource(open.uploadId())).thenThrow(new UploadFailure("UPLOAD_STATE_CONFLICT"));
         var workflow = new UploadWorkflow(uploads, core, mock(UploadGrantSigner.class), staging);
@@ -42,7 +42,7 @@ class UploadWorkflowTest {
     private static UploadPersistence.UploadSnapshot openSnapshot() {
         return new UploadPersistence.UploadSnapshot(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), 1, 1024, "a".repeat(64),
-                "OPEN", "UPLOADING", null, 0, Instant.now().plusSeconds(3600));
+                "OPEN", "UPLOADING", null, 0, null, Instant.now().plusSeconds(3600));
     }
 
     @Test
@@ -64,7 +64,7 @@ class UploadWorkflowTest {
             @Override public UploadSource grantSource(UUID ignored) {
                 return new UploadSource(new UploadSnapshot(command.uploadId(), command.requestId(), command.contentId(),
                         command.bindingId(), command.assetId(), command.assetVersion(), command.byteLength(),
-                        command.sha256(), "OPEN", "UPLOADING", null, 0, command.expiresAt()), "staging/key");
+                        command.sha256(), "OPEN", "UPLOADING", null, 0, null, command.expiresAt()), "staging/key");
             }
             @Override public UploadSnapshot queue(UUID uploadId, UUID assetId, long assetVersion) {
                 throw new AssertionError("queue reached");
