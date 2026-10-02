@@ -397,6 +397,120 @@ class MediaStorageIntegrationTest {
         }
     }
 
+    @Autowired S3SourceStorage sourceStorage;
+
+    @Test
+    void stagingCopyCountsAndHashesExactlyWhatWasReadAndStopsOneByteAfterTheDeclaredLength() throws Exception {
+        byte[] content = new byte[5000];
+        new java.util.Random(17).nextBytes(content);
+        String key = "staging/" + UUID.randomUUID() + "/source.mp4";
+        long before = scratchFiles();
+        client.putObject(PutObjectRequest.builder().bucket(configured.sourceBucket()).key(key)
+                .contentType("video/mp4").build(), RequestBody.fromBytes(content));
+        try {
+            try (var exact = sourceStorage.stage(key, 5000, () -> false).orElseThrow()) {
+                assertThat(exact.bytes()).isEqualTo(5000);
+                assertThat(exact.sha256()).isEqualTo(digest(content));
+                assertThat(Files.readAllBytes(exact.file())).isEqualTo(content);
+            }
+            // Oversize: one byte past the declared length proves it; the rest is never copied.
+            try (var longer = sourceStorage.stage(key, 4000, () -> false).orElseThrow()) {
+                assertThat(longer.bytes()).isEqualTo(4001);
+                assertThat(Files.size(longer.file())).isEqualTo(4001);
+            }
+            try (var shorter = sourceStorage.stage(key, 6000, () -> false).orElseThrow()) {
+                assertThat(shorter.bytes()).isEqualTo(5000);
+            }
+            assertThat(sourceStorage.stage("staging/" + UUID.randomUUID() + "/source.mp4", 10, () -> false)).isEmpty();
+            assertThat(scratchFiles()).isEqualTo(before);
+        } finally { storage.delete(S3MediaStorage.Area.STAGING, key); }
+    }
+
+    @Test
+    void stagingCopyIsBoundedByTheConfiguredObjectLimitEvenWhenTheDeclaredLengthIsLarger() throws Exception {
+        String key = "staging/" + UUID.randomUUID() + "/source.mp4";
+        long limit = configured.maxObjectBytes();
+        long before = scratchFiles();
+        client.putObject(PutObjectRequest.builder().bucket(configured.sourceBucket()).key(key)
+                .contentType("video/mp4").build(), RequestBody.fromBytes(new byte[(int) limit + 4096]));
+        try (var copy = sourceStorage.stage(key, limit * 4, () -> false).orElseThrow()) {
+            assertThat(copy.bytes()).isEqualTo(limit + 1);
+            assertThat(Files.size(copy.file())).isEqualTo(limit + 1);
+        } finally { storage.delete(S3MediaStorage.Area.STAGING, key); }
+        assertThat(scratchFiles()).isEqualTo(before);
+    }
+
+    @Test
+    void cancelledOrUnavailableCopyLeavesNoScratchFile() throws Exception {
+        String key = "staging/" + UUID.randomUUID() + "/source.mp4";
+        String frozenKey = "sources/" + UUID.randomUUID() + "/attempt-1/source.mp4";
+        long before = scratchFiles();
+        client.putObject(PutObjectRequest.builder().bucket(configured.sourceBucket()).key(key)
+                .contentType("video/mp4").build(), RequestBody.fromBytes(new byte[200_000]));
+        client.putObject(PutObjectRequest.builder().bucket(configured.sourceBucket()).key(frozenKey)
+                .contentType("video/mp4").build(), RequestBody.fromBytes(new byte[200_000]));
+        try {
+            assertThatThrownBy(() -> sourceStorage.stage(key, 200_000, () -> true))
+                    .isInstanceOf(InterruptedException.class);
+            assertThatThrownBy(() -> sourceStorage.digest(frozenKey, 200_000, () -> true))
+                    .isInstanceOf(InterruptedException.class);
+            try (var unavailable = new java.net.ServerSocket(0)) {
+                var properties = settings(URI.create("http://127.0.0.1:" + unavailable.getLocalPort()), ACCESS, SECRET);
+                try (var offlineClient = new MediaStorageConfiguration().mediaS3Client(properties)) {
+                    var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+                    beans.registerSingleton("storage", new S3MediaStorage(offlineClient, properties));
+                    beans.registerSingleton("properties", properties);
+                    var offline = new S3SourceStorage(beans.getBeanProvider(S3MediaStorage.class),
+                            beans.getBeanProvider(MediaStorageProperties.class));
+                    assertThatThrownBy(() -> offline.stage(key, 200_000, () -> false))
+                            .isInstanceOf(com.libra.streaming.media.processing.application.SourceStorage.Unavailable.class)
+                            .hasNoCause();
+                    assertThatThrownBy(() -> offline.digest(frozenKey, 200_000, () -> false))
+                            .isInstanceOf(com.libra.streaming.media.processing.application.SourceStorage.Unavailable.class);
+                }
+            }
+            assertThat(scratchFiles()).isEqualTo(before);
+        } finally {
+            storage.delete(S3MediaStorage.Area.STAGING, key);
+            storage.delete(S3MediaStorage.Area.SOURCE, frozenKey);
+        }
+    }
+
+    @Test
+    void frozenObjectRoundTripsThroughAPrivateAttemptKeyOutsideTheStagingArea() throws Exception {
+        byte[] content = new byte[3000];
+        new java.util.Random(23).nextBytes(content);
+        var lease = new com.libra.streaming.media.processing.domain.JobLease(UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), 1, 2, UUID.randomUUID(), Instant.now().plusSeconds(30));
+        String key = sourceStorage.frozenKey(lease);
+        assertThat(key).isEqualTo("sources/" + lease.uploadId() + "/attempt-2/source.mp4")
+                .doesNotStartWith(configured.stagingPrefix());
+        Path file = storage.scratchFile();
+        try {
+            Files.write(file, content);
+            try (var copy = new com.libra.streaming.media.processing.application.SourceStorage.StagedCopy(
+                    file, content.length, digest(content))) {
+                sourceStorage.store(key, copy);
+            }
+            assertThat(Files.exists(file)).isFalse(); // closing the copy removes the scratch file
+            var stored = sourceStorage.digest(key, 3000, () -> false).orElseThrow();
+            assertThat(stored.bytes()).isEqualTo(3000);
+            assertThat(stored.sha256()).isEqualTo(digest(content));
+            // A wrong expectation is bounded, not drained: one byte past it is enough to disagree.
+            assertThat(sourceStorage.digest(key, 10, () -> false).orElseThrow().bytes()).isEqualTo(11);
+            assertThat(sourceStorage.digest(sourceStorage.frozenKey(new com.libra.streaming.media.processing.domain.JobLease(
+                    UUID.randomUUID(), UUID.randomUUID(), lease.assetId(), 1, 1, UUID.randomUUID(), Instant.now())),
+                    3000, () -> false)).isEmpty();
+        } finally {
+            Files.deleteIfExists(file);
+            storage.delete(S3MediaStorage.Area.SOURCE, key);
+        }
+    }
+
+    private long scratchFiles() throws java.io.IOException {
+        try (var files = Files.list(configured.scratchDirectory())) { return files.count(); }
+    }
+
     private static String digest(byte[] bytes) throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
     }

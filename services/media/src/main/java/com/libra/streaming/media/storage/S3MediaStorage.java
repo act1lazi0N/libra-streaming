@@ -1,10 +1,15 @@
 package com.libra.streaming.media.storage;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -94,6 +99,70 @@ final class S3MediaStorage {
         }
     }
 
+    /**
+     * Copies at most {@code declaredBytes + 1} bytes to scratch while counting and hashing exactly what was read.
+     * One extra byte is enough to prove an oversized object without reading the rest of it.
+     */
+    Optional<Measured<Path>> stage(Area area, String key, long declaredBytes, BooleanSupplier cancelled)
+            throws IOException, InterruptedException {
+        Path destination = scratchFile();
+        boolean completed = false;
+        try {
+            Optional<Measured<Void>> measured;
+            try (var output = Files.newOutputStream(destination)) {
+                measured = measure(area, key, declaredBytes, output, cancelled);
+            }
+            completed = measured.isPresent();
+            return measured.map(value -> new Measured<>(destination, value.length(), value.sha256()));
+        } finally {
+            if (!completed) { Files.deleteIfExists(destination); }
+        }
+    }
+
+    Optional<Measured<Void>> digest(Area area, String key, long expectedBytes, BooleanSupplier cancelled)
+            throws IOException, InterruptedException {
+        return measure(area, key, expectedBytes, OutputStream.nullOutputStream(), cancelled)
+                .map(value -> new Measured<>(null, value.length(), value.sha256()));
+    }
+
+    private Optional<Measured<Void>> measure(Area area, String key, long declaredBytes, OutputStream sink,
+            BooleanSupplier cancelled) throws IOException, InterruptedException {
+        var location = location(area, key);
+        long ceiling = Math.min(declaredBytes, properties.maxObjectBytes()) + 1;
+        MessageDigest digest = sha256();
+        try (var response = client.getObject(GetObjectRequest.builder()
+                .bucket(location.bucket()).key(location.key()).build())) {
+            byte[] buffer = new byte[65536];
+            long copied = 0;
+            while (copied < ceiling) {
+                if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+                    throw new InterruptedException();
+                }
+                int read = response.read(buffer, 0, (int) Math.min(buffer.length, ceiling - copied));
+                if (read == -1) { break; }
+                digest.update(buffer, 0, read);
+                sink.write(buffer, 0, read);
+                copied += read;
+            }
+            if (copied >= ceiling) {
+                response.abort();
+            } else if (response.response().contentLength() != null && copied != response.response().contentLength()) {
+                throw new IOException("Object length mismatch");
+            }
+            return Optional.of(new Measured<>(null, copied, HexFormat.of().formatHex(digest.digest())));
+        } catch (S3Exception exception) {
+            if (exception.statusCode() == 404) { return Optional.empty(); }
+            throw MediaStorageException.from(exception);
+        } catch (SdkException failure) {
+            throw MediaStorageException.from(failure);
+        }
+    }
+
+    private static MessageDigest sha256() {
+        try { return MessageDigest.getInstance("SHA-256"); }
+        catch (NoSuchAlgorithmException exception) { throw new IllegalStateException("SHA-256 unavailable", exception); }
+    }
+
     void delete(Area area, String key) {
         var location = location(area, key);
         try {
@@ -123,5 +192,7 @@ final class S3MediaStorage {
     }
 
     record ObjectMetadata(long length, String contentType) {}
+    /** Bytes actually read and the SHA-256 of exactly those bytes; the value is the scratch file, when any. */
+    record Measured<T>(T value, long length, String sha256) {}
     private record Location(String bucket, String key) {}
 }

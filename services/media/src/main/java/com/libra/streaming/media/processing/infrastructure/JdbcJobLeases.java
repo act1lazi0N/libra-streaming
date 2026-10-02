@@ -14,7 +14,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Repository
-@Transactional(propagation = Propagation.REQUIRES_NEW)
+// Bound lock/query waits so an unavailable renewal cannot retain a row lock indefinitely.
+@Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 5)
 public class JdbcJobLeases implements JobLeases {
     private final JdbcTemplate jdbc;
 
@@ -100,20 +101,7 @@ public class JdbcJobLeases implements JobLeases {
         return true;
     }
 
-    private Instant lockCurrent(JobLease lease) {
-        if (lease == null) { return null; }
-        var expiry = jdbc.query("""
-                SELECT j.lease_until FROM media_jobs j JOIN media_uploads u ON u.id = j.upload_id
-                WHERE j.id = ? AND j.upload_id = ? AND j.attempt_count = ? AND j.lease_token = ?
-                    AND u.asset_id = ? AND u.asset_version = ?
-                    AND j.stage IN ('CLAIMED', 'SOURCE_SELECTED', 'TRANSCODING', 'FINALIZING')
-                    FOR UPDATE OF j
-                """, (rs, row) -> rs.getTimestamp(1).toInstant(), lease.jobId(), lease.uploadId(), lease.attempt(),
-                lease.token(), lease.assetId(), lease.assetVersion());
-        if (expiry.isEmpty()) { return null; }
-        Instant now = now();
-        return expiry.getFirst().isAfter(now) ? now : null;
-    }
+    private Instant lockCurrent(JobLease lease) { return LeaseFence.lockCurrent(jdbc, lease); }
 
     private void requeue(JobLease lease, Instant now, Instant due, String reason) {
         jdbc.update("""

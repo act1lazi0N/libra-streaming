@@ -40,9 +40,11 @@ dedicated Core-to-Media identity and bounded internal client. Admin upload,
 signed staging PUT, and [durable completion](docs/media-completion-m13.md) are
 implemented, with [completion race and failure hardening](docs/media-completion-hardening-m14.md).
 [Bounded worker and lease lifecycle](docs/media-worker-m15.md) are implemented
-with PostgreSQL ownership, renewal, restart recovery and three-attempt retries.
-The worker is disabled by default and requires a real handler before enabling;
-immutable source selection and media processing remain subsequent milestones.
+with PostgreSQL ownership, renewal, restart recovery and three-attempt retries;
+[lease recovery hardening](docs/media-worker-m16.md) adds stale-worker, database-loss
+and killed-process evidence. [Verified source freezing](docs/media-source-m17.md) provides the stage
+that proves staging bytes and selects a private immutable source under the lease. The worker is disabled by
+default and requires a real handler before enabling; probing, transcoding and HLS remain subsequent milestones.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d
