@@ -156,6 +156,7 @@ services:
       MEDIA_S3_ALLOW_HTTP: true
       MEDIA_STORAGE_INITIALIZE_BUCKETS: ${MEDIA_STORAGE_INITIALIZE_BUCKETS:-false}
       MEDIA_STORAGE_PROBE_ON_STARTUP: false
+      MEDIA_FFPROBE_PATH: /usr/bin/ffprobe
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     read_only: true
     tmpfs:

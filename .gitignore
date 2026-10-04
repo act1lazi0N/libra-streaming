@@ -3,6 +3,12 @@
 .claude/
 AGENTS.md
 CLAUDE.md
+.gitnexus/
+
+# Python local environments and caches (CI helper scripts under infra/)
+.venv/
+venv/
+.pytest_cache/
 
 # Java / Maven generated files (keep Maven Wrapper files tracked)
 target/
@@ -26,6 +32,7 @@ dist/
 .cache/
 .pnpm-store/
 *.tsbuildinfo
+next-env.d.ts
 .eslintcache
 .stylelintcache
 
@@ -54,6 +61,10 @@ logs/
 *.hprof
 hs_err_pid*
 replay_pid*
+*.pid
+
+# Media scratch copies from freezing and probing (normally under target/ or /tmp, never source)
+*.part
 
 # Local infrastructure data and generated media; scope to runtime folders
 # Keep source modules such as services/media and test video fixtures tracked.

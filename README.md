@@ -79,7 +79,7 @@ pnpm.cmd --dir web build
 docker compose --env-file .env -f infra/compose.yaml config --quiet
 ```
 
-The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests plus real ffprobe fixture tests, which need an `ffprobe` on `PATH` or in `LIBRA_FFPROBE_PATH` (a missing tool fails the build); FFmpeg transcoding and protected HLS integration remain later work.
+The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests plus real ffprobe fixture tests, which need an `ffprobe` on `PATH` or in `LIBRA_FFPROBE_PATH` and an `ffmpeg` beside it or in `LIBRA_FFMPEG_PATH` to generate their fixtures (a missing tool fails the build); FFmpeg transcoding and protected HLS integration remain later work.
 
 See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Milestone 7 adds the durable background outbox publisher and recovery operations.
 
