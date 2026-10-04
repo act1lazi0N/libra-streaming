@@ -20,36 +20,38 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 /** Internal only: all keys are constrained to one configured private area. */
-final class S3MediaStorage {
+final class S3MediaStorage implements AutoCloseable {
     enum Area { STAGING, SOURCE, HLS }
 
     private static final Set<String> CONTENT_TYPES = Set.of("application/octet-stream", "video/mp4",
             "application/vnd.apple.mpegurl", "video/mp2t");
     private final S3Client client;
     private final MediaStorageProperties properties;
-    private final Path scratch;
+    private final ScratchSpace scratch;
 
     S3MediaStorage(S3Client client, MediaStorageProperties properties) throws IOException {
+        this(client, properties, new ScratchSpace(properties.scratchDirectory()));
+    }
+
+    S3MediaStorage(S3Client client, MediaStorageProperties properties, ScratchSpace scratch) {
         this.client = client;
         this.properties = properties;
-        Path configured = properties.scratchDirectory().normalize();
-        if (Files.isSymbolicLink(configured)) { throw new IllegalArgumentException("Scratch directory is a link"); }
-        Files.createDirectories(configured);
-        scratch = configured.toRealPath();
-        if (!Files.isDirectory(scratch) || !Files.isWritable(scratch)) {
-            throw new IllegalArgumentException("Scratch directory is not writable");
-        }
+        this.scratch = scratch;
     }
 
     Path scratchFile() throws IOException {
-        return Files.createTempFile(scratch, "media-", ".part");
+        return scratch.newFile();
     }
+
+    /** Releases this instance's scratch lock and removes its directory; Spring infers it as the destroy method. */
+    @Override
+    public void close() throws IOException { scratch.close(); }
 
     void put(Area area, String key, Path source, String contentType) throws IOException {
         var location = location(area, key);
         if (!CONTENT_TYPES.contains(contentType)) { throw new IllegalArgumentException("Unsupported content type"); }
         Path real = source.toRealPath();
-        if (!real.startsWith(scratch) || !Files.isRegularFile(real)) {
+        if (!scratch.contains(real) || !Files.isRegularFile(real)) {
             throw new IllegalArgumentException("Source must be a regular scratch file");
         }
         long size = Files.size(real);
@@ -105,6 +107,7 @@ final class S3MediaStorage {
      */
     Optional<Measured<Path>> stage(Area area, String key, long declaredBytes, BooleanSupplier cancelled)
             throws IOException, InterruptedException {
+        scratch.requireSpace(Math.min(declaredBytes, properties.maxObjectBytes()) + 1);
         Path destination = scratchFile();
         boolean completed = false;
         try {
@@ -130,26 +133,36 @@ final class S3MediaStorage {
         var location = location(area, key);
         long ceiling = Math.min(declaredBytes, properties.maxObjectBytes()) + 1;
         MessageDigest digest = sha256();
+        // The SDK's call timeout ends when headers arrive and the socket timeout bounds each read only, so a
+        // slowly dripping body needs its own total bound. The request timeout already bounds a whole PUT.
+        long deadline = System.nanoTime() + properties.requestTimeout().toNanos();
         try (var response = client.getObject(GetObjectRequest.builder()
                 .bucket(location.bucket()).key(location.key()).build())) {
-            byte[] buffer = new byte[65536];
-            long copied = 0;
-            while (copied < ceiling) {
-                if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) {
-                    throw new InterruptedException();
+            boolean drained = false;
+            try {
+                byte[] buffer = new byte[65536];
+                long copied = 0;
+                while (copied < ceiling) {
+                    if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+                        throw new InterruptedException();
+                    }
+                    if (System.nanoTime() - deadline > 0) { throw new IOException("Object transfer deadline exceeded"); }
+                    int read = response.read(buffer, 0, (int) Math.min(buffer.length, ceiling - copied));
+                    if (read == -1) { drained = true; break; }
+                    digest.update(buffer, 0, read);
+                    sink.write(buffer, 0, read);
+                    copied += read;
                 }
-                int read = response.read(buffer, 0, (int) Math.min(buffer.length, ceiling - copied));
-                if (read == -1) { break; }
-                digest.update(buffer, 0, read);
-                sink.write(buffer, 0, read);
-                copied += read;
+                // A declared length the body did not reach is a broken transfer, never a smaller object.
+                if (drained && response.response().contentLength() != null
+                        && copied != response.response().contentLength()) {
+                    throw new IOException("Object length mismatch");
+                }
+                return Optional.of(new Measured<>(null, copied, HexFormat.of().formatHex(digest.digest())));
+            } finally {
+                // Closing an unfinished stream may try to drain it; abort instead so no exit path can hang.
+                if (!drained) { response.abort(); }
             }
-            if (copied >= ceiling) {
-                response.abort();
-            } else if (response.response().contentLength() != null && copied != response.response().contentLength()) {
-                throw new IOException("Object length mismatch");
-            }
-            return Optional.of(new Measured<>(null, copied, HexFormat.of().formatHex(digest.digest())));
         } catch (S3Exception exception) {
             if (exception.statusCode() == 404) { return Optional.empty(); }
             throw MediaStorageException.from(exception);

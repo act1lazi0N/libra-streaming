@@ -43,8 +43,11 @@ implemented, with [completion race and failure hardening](docs/media-completion-
 with PostgreSQL ownership, renewal, restart recovery and three-attempt retries;
 [lease recovery hardening](docs/media-worker-m16.md) adds stale-worker, database-loss
 and killed-process evidence. [Verified source freezing](docs/media-source-m17.md) provides the stage
-that proves staging bytes and selects a private immutable source under the lease. The worker is disabled by
-default and requires a real handler before enabling; probing, transcoding and HLS remain subsequent milestones.
+that proves staging bytes and selects a private immutable source under the lease;
+[snapshot recovery hardening](docs/media-snapshot-m18.md) adds crash-point, staging-mutation, storage-fault and
+scratch-reclaim evidence. [ffprobe validation](docs/media-probe-m19.md) judges the frozen MP4 against the
+first-slice H.264 policy and records only the validated metadata. The worker is disabled by
+default and requires a real handler before enabling; transcoding and HLS remain subsequent milestones.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d
@@ -76,7 +79,7 @@ pnpm.cmd --dir web build
 docker compose --env-file .env -f infra/compose.yaml config --quiet
 ```
 
-The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests; FFmpeg and protected HLS integration remain later work.
+The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests plus real ffprobe fixture tests, which need an `ffprobe` on `PATH` or in `LIBRA_FFPROBE_PATH` (a missing tool fails the build); FFmpeg transcoding and protected HLS integration remain later work.
 
 See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Milestone 7 adds the durable background outbox publisher and recovery operations.
 

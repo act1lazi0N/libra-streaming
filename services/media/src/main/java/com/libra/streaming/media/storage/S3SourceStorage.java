@@ -1,5 +1,6 @@
 package com.libra.streaming.media.storage;
 
+import com.libra.streaming.media.processing.application.SourceReader;
 import com.libra.streaming.media.processing.application.SourceStorage;
 import com.libra.streaming.media.processing.domain.JobLease;
 import java.io.IOException;
@@ -10,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 /** Maps source freezing onto the private source area. Storage detail never crosses this boundary. */
 @Component
-public class S3SourceStorage implements SourceStorage {
+public class S3SourceStorage implements SourceStorage, SourceReader {
     private final ObjectProvider<S3MediaStorage> storage;
     private final ObjectProvider<MediaStorageProperties> properties;
 
@@ -53,6 +54,18 @@ public class S3SourceStorage implements SourceStorage {
         try {
             return available().digest(S3MediaStorage.Area.SOURCE, frozenKey, expectedBytes, cancelled)
                     .map(measured -> new Digest(measured.length(), measured.sha256()));
+        } catch (MediaStorageException | IOException exception) {
+            throw new Unavailable();
+        }
+    }
+
+    /** Reads only the private source area, so a probe can never be pointed at the mutable staging object. */
+    @Override
+    public Optional<StagedCopy> open(String frozenKey, long expectedBytes, BooleanSupplier cancelled)
+            throws InterruptedException {
+        try {
+            return available().stage(S3MediaStorage.Area.SOURCE, frozenKey, expectedBytes, cancelled)
+                    .map(copy -> new StagedCopy(copy.value(), copy.length(), copy.sha256()));
         } catch (MediaStorageException | IOException exception) {
             throw new Unavailable();
         }

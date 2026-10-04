@@ -507,8 +507,11 @@ class MediaStorageIntegrationTest {
         }
     }
 
+    /** Partial copies in any instance directory under the scratch root. */
     private long scratchFiles() throws java.io.IOException {
-        try (var files = Files.list(configured.scratchDirectory())) { return files.count(); }
+        try (var files = Files.walk(configured.scratchDirectory())) {
+            return files.filter(path -> path.getFileName().toString().endsWith(".part")).count();
+        }
     }
 
     private static String digest(byte[] bytes) throws Exception {
