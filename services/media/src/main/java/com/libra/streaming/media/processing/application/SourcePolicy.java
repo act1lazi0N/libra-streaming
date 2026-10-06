@@ -20,6 +20,10 @@ public final class SourcePolicy {
     private static final Set<String> HDR_TRANSFERS = Set.of("smpte2084", "arib-std-b67");
     private static final BigDecimal MAX_SECONDS = BigDecimal.valueOf(SourceMetadata.MAX_DURATION_MILLIS, 3);
     private static final long LIMIT = 100_000;
+    /** Header facts may differ by encoder rounding and edit lists, not by the length of the clip. */
+    private static final BigDecimal DURATION_SLACK = BigDecimal.valueOf(2);
+    private static final BigDecimal DURATION_SHARE = new BigDecimal("0.1");
+    private static final int FRAME_SLACK = 3;
 
     private SourcePolicy() {}
 
@@ -27,7 +31,8 @@ public final class SourcePolicy {
     public enum Reason {
         NO_FORMAT, NOT_MP4, BRAND, DURATION_MISSING, DURATION_RANGE, STREAM_KIND, NO_VIDEO, EXTRA_VIDEO,
         EXTRA_AUDIO, VIDEO_CODEC, VIDEO_PROFILE, PIXEL_FORMAT, HDR, DIMENSIONS_MISSING, ASPECT_RATIO, ROTATION,
-        RESOLUTION, FRAME_RATE_MISSING, FRAME_RATE_RANGE, AUDIO_CODEC, AUDIO_PARAMETERS
+        RESOLUTION, FRAME_RATE_MISSING, FRAME_RATE_RANGE, AUDIO_CODEC, AUDIO_PARAMETERS, TRACK_DURATION,
+        FRAME_COUNT
     }
 
     public sealed interface Verdict {
@@ -111,8 +116,37 @@ public final class SourcePolicy {
             }
             audioFacts = new SourceMetadata.Audio(audio.channels(), audio.sampleRate());
         }
+        // Last, so every earlier rejection keeps its own reason: the headers must tell one story about the clip.
+        if (!tracksAgree(seconds, video, audio)) { return unsupported(Reason.TRACK_DURATION); }
+        if (!framesFit(seconds, rate, video)) { return corrupt(Reason.FRAME_COUNT); }
         return new Verdict.Accepted(new SourceMetadata(millis, codedWidth, codedHeight, rotation, displayWidth,
                 displayHeight, (int) rate[0], (int) rate[1], video.profile(), audioFacts));
+    }
+
+    /**
+     * The container duration is what the limit is applied to, so each track must agree with it. Tracks of
+     * clearly different lengths are a shape this slice does not transcode, not a corrupt file.
+     */
+    private static boolean tracksAgree(BigDecimal seconds, ProbeReport.Track video, ProbeReport.Track audio) {
+        var allowed = DURATION_SLACK.max(seconds.multiply(DURATION_SHARE));
+        for (var track : new ProbeReport.Track[] {video, audio}) {
+            if (track != null && track.durationSeconds() != null
+                    && seconds.subtract(track.durationSeconds()).abs().compareTo(allowed) > 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The video frame count must fit the duration at the declared rate. Headers rewritten to say "one second"
+     * would otherwise hide a clip with hundreds of frames from the duration limit; the sample table, not the
+     * headers, is what a transcoder would have to process.
+     */
+    private static boolean framesFit(BigDecimal seconds, long[] rate, ProbeReport.Track video) {
+        if (video.frameCount() == null) { return true; }
+        double expected = seconds.doubleValue() * rate[0] / rate[1];
+        return video.frameCount() <= expected * (1 + DURATION_SHARE.doubleValue()) + FRAME_SLACK;
     }
 
     /**

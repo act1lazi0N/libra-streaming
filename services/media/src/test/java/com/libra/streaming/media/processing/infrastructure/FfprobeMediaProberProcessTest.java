@@ -57,6 +57,21 @@ class FfprobeMediaProberProcessTest {
         assertThat(arguments).contains("-protocol_whitelist file").contains("-print_format json")
                 .contains("-show_format").contains("-show_streams").contains("-i file:")
                 .contains(input.toRealPath().toString());
+        // Only the MP4/MOV demuxer may read input, and the probe budgets are stated, not inherited.
+        assertThat(arguments).contains("-f mov").contains("-probesize 8388608").contains("-analyzeduration 10000000")
+                .contains("-max_alloc 33554432");
+    }
+
+    @Test
+    void nothingButTheFinalOperandDependsOnTheFile() throws Exception {
+        var executable = directory.resolve("tool");
+        var first = FfprobeMediaProber.command(executable, directory.resolve("a.part"));
+        var second = FfprobeMediaProber.command(executable, directory.resolve("-i http;x $(y).part"));
+        assertThat(first).hasSameSizeAs(second);
+        for (int i = 0; i < first.size() - 1; i++) { assertThat(second.get(i)).isEqualTo(first.get(i)); }
+        assertThat(second.getLast()).startsWith("file:");
+        // The operand follows -i, and "file:" keeps even a name that begins with a dash from being an option.
+        assertThat(second.get(second.size() - 2)).isEqualTo("-i");
     }
 
     @Test

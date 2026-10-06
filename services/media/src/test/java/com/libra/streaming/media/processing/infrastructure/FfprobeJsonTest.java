@@ -100,4 +100,50 @@ class FfprobeJsonTest {
         assertThatThrownBy(() -> parse("SECRET-TOKEN not json")).isInstanceOf(MediaProber.Unreadable.class)
                 .hasMessageNotContaining("SECRET").hasNoCause();
     }
+
+    private static String withRotations(String sideData, String tags) {
+        return "{\"streams\":[{\"codec_type\":\"video\",\"side_data_list\":[" + sideData + "],\"tags\":{" + tags
+                + "}}],\"format\":{}}";
+    }
+
+    @Test
+    void rotationsThatAgreeAreKeptAndRotationsThatDisagreeBecomeNaN() {
+        var matrix = "{\"rotation\":-90}";
+        assertThat(parse(withRotations(matrix + "," + matrix, "")).tracks().getFirst().rotationDegrees())
+                .isEqualTo(-90.0);
+        assertThat(parse(withRotations(matrix + ",{\"rotation\":270}", "")).tracks().getFirst().rotationDegrees())
+                .isEqualTo(-90.0);
+        assertThat(parse(withRotations(matrix + ",{\"rotation\":90}", "")).tracks().getFirst().rotationDegrees())
+                .isNaN();
+        assertThat(parse(withRotations(matrix, "\"rotate\":\"0\"")).tracks().getFirst().rotationDegrees()).isNaN();
+        assertThat(parse(withRotations(matrix, "\"rotate\":\"-90\"")).tracks().getFirst().rotationDegrees())
+                .isEqualTo(-90.0);
+        assertThat(parse(withRotations("", "\"rotate\":\"90\"")).tracks().getFirst().rotationDegrees())
+                .isEqualTo(90.0);
+    }
+
+    @Test
+    void trackDurationAndFrameCountAreReadLikeOtherNumbers() {
+        var track = parse("{\"streams\":[{\"codec_type\":\"video\",\"duration\":\"10.016000\",\"nb_frames\":\"300\"},"
+                + "{\"codec_type\":\"audio\",\"duration\":\"N/A\",\"nb_frames\":\"1e99\"}],\"format\":{}}").tracks();
+        assertThat(track.get(0).durationSeconds()).isEqualByComparingTo("10.016");
+        assertThat(track.get(0).frameCount()).isEqualTo(300);
+        assertThat(track.get(1).durationSeconds()).isNull();
+        assertThat(track.get(1).frameCount()).isNull();
+    }
+
+    @Test
+    void absurdNestingOrSizeWithinTheOutputBudgetIsUnreadable() {
+        for (int depth : new int[] {600, 5000}) {
+            assertThatThrownBy(() -> parse("[".repeat(depth) + "]".repeat(depth))).as("depth " + depth)
+                    .isInstanceOf(MediaProber.Unreadable.class);
+            assertThatThrownBy(() -> parse("{\"streams\":[],\"format\":" + "{\"a\":".repeat(depth) + "1" + "}".repeat(depth) + "}"))
+                    .as("object depth " + depth).isInstanceOf(MediaProber.Unreadable.class);
+        }
+        var huge = "x".repeat(200_000);
+        var report = parse("{\"streams\":[],\"format\":{\"format_name\":\"" + huge + "\",\"tags\":{\"major_brand\":\""
+                + huge + "\"}}}");
+        assertThat(report.format().names()).isNull();
+        assertThat(report.format().majorBrand()).isNull();
+    }
 }

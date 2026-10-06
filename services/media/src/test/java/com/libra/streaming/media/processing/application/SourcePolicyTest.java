@@ -26,6 +26,11 @@ class SourcePolicyTest {
                 channels, rate);
     }
 
+    private static ProbeReport.Track audioLasting(String seconds) {
+        return new ProbeReport.Track("audio", "aac", "LC", null, null, null, null, "0/0", null, null, null, false,
+                2, 48000, new BigDecimal(seconds), null);
+    }
+
     private static SourceMetadata accepted(ProbeReport report) {
         var verdict = SourcePolicy.evaluate(report);
         assertThat(verdict).isInstanceOf(SourcePolicy.Verdict.Accepted.class);
@@ -243,6 +248,45 @@ class SourcePolicyTest {
         assertThat(new ArrayList<>(SourceMetadata.VIDEO_PROFILES)).hasSize(4);
     }
 
+    @Test
+    void theVideoFrameCountMustFitTheDurationAtTheDeclaredRate() {
+        // 10 s at 30 fps is 300 frames; encoder rounding is tolerated, a different clip is not.
+        accepted(report(video(v -> v.frames(300))));
+        accepted(report(video(v -> v.frames(333))));
+        assertRejected(report(video(v -> v.frames(334))), ProcessingFailure.CORRUPT_INPUT, SourcePolicy.Reason.FRAME_COUNT);
+        assertRejected(report(video(v -> v.frames(Integer.MAX_VALUE))), ProcessingFailure.CORRUPT_INPUT,
+                SourcePolicy.Reason.FRAME_COUNT);
+        accepted(report(video(v -> v.frames(null))));
+        // Headers rewritten to one second over a 700-frame sample table: the duration limit alone is blind to it.
+        var lying = new ProbeReport(new ProbeReport.Format("mov,mp4", "isom", new BigDecimal("1.000000")),
+                List.of(video(v -> v.rate("1/1").frames(700))));
+        assertRejected(lying, ProcessingFailure.CORRUPT_INPUT, SourcePolicy.Reason.FRAME_COUNT);
+        // Fewer frames than the duration implies is a sparse clip, not a threat.
+        accepted(report(video(v -> v.frames(1))));
+    }
+
+    @Test
+    void everyTrackMustAgreeWithTheContainerDuration() {
+        accepted(report(video(v -> v.duration("10.0")), audioLasting("10.02")));
+        accepted(report(video(v -> v.duration("11.9")), audioLasting("8.1")));
+        assertRejected(report(video(v -> v.duration("13")), audioLasting("10")), ProcessingFailure.UNSUPPORTED_MEDIA,
+                SourcePolicy.Reason.TRACK_DURATION);
+        assertRejected(report(video(v -> v.duration("10")), audioLasting("1")), ProcessingFailure.UNSUPPORTED_MEDIA,
+                SourcePolicy.Reason.TRACK_DURATION);
+        assertRejected(report(video(v -> v.duration("0.1"))), ProcessingFailure.UNSUPPORTED_MEDIA,
+                SourcePolicy.Reason.TRACK_DURATION);
+        // The allowance grows with the clip: 10% of a 600 s clip is 60 s.
+        var long600 = new ProbeReport(new ProbeReport.Format("mov,mp4", "isom", new BigDecimal("600")),
+                List.of(video(v -> v.duration("550"))));
+        accepted(long600);
+    }
+
+    @Test
+    void contradictoryRotationsAreRejectedNotResolvedByOrder() {
+        assertRejected(report(video(v -> v.rotation(Double.NaN))), ProcessingFailure.UNSUPPORTED_MEDIA,
+                SourcePolicy.Reason.ROTATION);
+    }
+
     /** A valid 1280x720 H.264 SDR track that each test bends in exactly one way. */
     private static final class VideoBuilder {
         private String codec = "h264";
@@ -255,7 +299,11 @@ class SourcePolicyTest {
         private String transfer = "bt709";
         private String primaries = "bt709";
         private Double rotation;
+        private BigDecimal seconds;
+        private Integer frames;
 
+        VideoBuilder duration(String value) { seconds = new BigDecimal(value); return this; }
+        VideoBuilder frames(Integer value) { frames = value; return this; }
         VideoBuilder codec(String value) { codec = value; return this; }
         VideoBuilder profile(String value) { profile = value; return this; }
         VideoBuilder size(Integer w, Integer h) { width = w; height = h; return this; }
@@ -268,7 +316,7 @@ class SourcePolicyTest {
 
         ProbeReport.Track build() {
             return new ProbeReport.Track("video", codec, profile, width, height, pixelFormat, sar, rate, transfer,
-                    primaries, rotation, false, null, null);
+                    primaries, rotation, false, null, null, seconds, frames);
         }
     }
 }

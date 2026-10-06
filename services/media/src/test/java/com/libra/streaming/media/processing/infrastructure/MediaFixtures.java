@@ -126,6 +126,55 @@ final class MediaFixtures {
                     H264, of("-c:s", "mov_text", "-an", "-t", "1"), FAST_START,
                     of(out.resolve("invalid-subtitle.mp4").toString())));
 
+            // M20: hostile and contradictory shapes. Each is synthetic and local.
+            // Rotation edge cases: a half turn, a three-quarter turn, and a tilt no player can honour.
+            for (int degrees : new int[] {180, 270, 45}) {
+                run(tool, join(of("-display_rotation:v:0", Integer.toString(degrees), "-i", upright.toString(),
+                        "-c", "copy"), FAST_START, of(out.resolve((degrees == 45 ? "invalid" : "valid")
+                        + "-rotated-" + degrees + ".mp4").toString())));
+            }
+            // Headers rewritten to say the clip lasts one second while its sample table still holds 601 frames.
+            Files.write(out.resolve("invalid-lying-headers.mp4"), lieAboutDuration(Files.readAllBytes(
+                    out.resolve("invalid-601s.mp4"))));
+            // A one-second picture over thirty seconds of tone: the container is as long as its longest track.
+            run(tool, join(of("-f", "lavfi", "-t", "1", "-i", "testsrc2=size=160x96:rate=15", "-f", "lavfi", "-t", "30",
+                    "-i", "sine=frequency=440:sample_rate=48000", "-ac", "2"), H264, AAC, FAST_START,
+                    of(out.resolve("invalid-track-lengths.mp4").toString())));
+            // One video and seventy audio tracks: more streams than the parser keeps.
+            var many = new ArrayList<String>(join(pattern("160x96", 15, 1), TONE, of("-map", "0:v")));
+            for (int i = 0; i < 70; i++) { many.addAll(of("-map", "1:a")); }
+            run(tool, join(many, H264, AAC, of("-shortest"), FAST_START,
+                    of(out.resolve("invalid-seventy-streams.mp4").toString())));
+            // A 300 KB comment: ffprobe's description of this file is larger than the output budget.
+            var metadata = work.resolve("huge.ffmeta");
+            Files.writeString(metadata, String.join("\n", ";FFMETADATA1", "comment=" + "x".repeat(300_000), ""),
+                    StandardCharsets.US_ASCII);
+            run(tool, join(of("-f", "lavfi", "-t", "1", "-i", "testsrc2=size=160x96:rate=15", "-i",
+                    metadata.toString(), "-map", "0:v", "-map_metadata", "1"), H264, of("-an"), FAST_START, of(out.resolve("invalid-huge-metadata.mp4").toString())));
+            run(tool, join(of("-f", "lavfi", "-i", "color=c=green:size=7680x4320:rate=1", "-t", "1"),
+                    of("-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-an"), FAST_START,
+                    of(out.resolve("invalid-8k.mp4").toString())));
+            // A 660 KB file whose header declares 15000x15000 pixels: decoding its first frame needs over 500 MB.
+            run(tool, join(of("-f", "lavfi", "-i", "color=c=black:size=15000x15000:rate=1", "-t", "1"),
+                    of("-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-an"), FAST_START,
+                    of(out.resolve("invalid-15k.mp4").toString())));
+            // Brands: a QuickTime file, and the same file claiming isom through a metadata tag.
+            run(tool, join(pattern("160x96", 15, 1), H264, of("-an", "-brand", "qt  "), FAST_START,
+                    of(out.resolve("invalid-brand-qt.mp4").toString())));
+            run(tool, join(pattern("160x96", 15, 1), H264, of("-an", "-brand", "qt  ", "-movflags",
+                    "+faststart+use_metadata_tags", "-metadata", "major_brand=isom"),
+                    of(out.resolve("invalid-brand-spoofed-tag.mp4").toString())));
+            // Largest legitimate index: ten minutes at thirty frames per second, 18000 samples.
+            run(tool, join(of("-f", "lavfi", "-i", "color=c=blue:size=64x64:rate=30", "-t", "600"),
+                    of("-c:v", "libx264", "-preset", "ultrafast", "-profile:v", "high", "-pix_fmt", "yuv420p",
+                            "-b:v", "50k", "-g", "60", "-an"), FAST_START,
+                    of(out.resolve("valid-dense-600s.mp4").toString())));
+            // More damage: cut off early, ftyp alone, and nothing at all.
+            byte[] whole2 = Files.readAllBytes(out.resolve("valid-160x96-silent.mp4"));
+            Files.write(out.resolve("corrupt-truncated-early.mp4"), Arrays.copyOf(whole2, 1000));
+            Files.write(out.resolve("corrupt-ftyp-only.mp4"), Arrays.copyOf(whole2, 32));
+            Files.write(out.resolve("corrupt-empty.mp4"), new byte[0]);
+
             // Corrupt inputs: a file cut off before its index, and bytes that are not a container at all.
             var whole = work.resolve("whole.mp4");
             run(tool, join(pattern("640x360", 30, 1), H264, of("-an"), of(whole.toString())));
@@ -143,6 +192,31 @@ final class MediaFixtures {
                 }
             }
         }
+    }
+
+    /** Rewrites the movie, track and media headers to claim one second; the sample table is left as it was. */
+    private static byte[] lieAboutDuration(byte[] file) {
+        var copy = file.clone();
+        // Offsets after the box type: mvhd and mdhd keep version, flags, two dates, timescale, duration; tkhd
+        // keeps version, flags, two dates, track id, a reserved word, then duration in movie units (1000 here).
+        patch(copy, "mvhd", 16, 12);
+        patch(copy, "mdhd", 16, 12);
+        patch(copy, "tkhd", 20, -1);
+        return copy;
+    }
+
+    private static void patch(byte[] file, String type, int durationAt, int timescaleAt) {
+        byte[] tag = type.getBytes(StandardCharsets.US_ASCII);
+        for (int i = 4; i + durationAt + 4 <= file.length; i++) {
+            if (file[i] != tag[0] || file[i + 1] != tag[1] || file[i + 2] != tag[2] || file[i + 3] != tag[3]) {
+                continue;
+            }
+            if (file[i + 4] != 0) { throw new AssertionError(type + " is not version 0"); }
+            int units = timescaleAt < 0 ? 1000 : java.nio.ByteBuffer.wrap(file, i + 4 + timescaleAt, 4).getInt();
+            java.nio.ByteBuffer.wrap(file, i + 4 + durationAt, 4).putInt(units);
+            return;
+        }
+        throw new AssertionError(type + " box not found");
     }
 
     private static void run(Path tool, List<String> arguments) throws IOException {

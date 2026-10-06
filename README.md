@@ -46,7 +46,9 @@ and killed-process evidence. [Verified source freezing](docs/media-source-m17.md
 that proves staging bytes and selects a private immutable source under the lease;
 [snapshot recovery hardening](docs/media-snapshot-m18.md) adds crash-point, staging-mutation, storage-fault and
 scratch-reclaim evidence. [ffprobe validation](docs/media-probe-m19.md) judges the frozen MP4 against the
-first-slice H.264 policy and records only the validated metadata. The worker is disabled by
+first-slice H.264 policy and records only the validated metadata;
+[probe hardening](docs/media-probe-hardening-m20.md) adds the hostile-input matrix, a forced MP4/MOV demuxer and
+resource bounds measured in the packaged image. The worker is disabled by
 default and requires a real handler before enabling; transcoding and HLS remain subsequent milestones.
 
 ```powershell

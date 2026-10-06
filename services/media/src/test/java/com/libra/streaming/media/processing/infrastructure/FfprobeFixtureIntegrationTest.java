@@ -119,14 +119,16 @@ class FfprobeFixtureIntegrationTest {
         rejected("invalid-60fps.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.FRAME_RATE_RANGE);
         rejected("invalid-two-audio.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.EXTRA_AUDIO);
         rejected("invalid-mp3-audio.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.AUDIO_CODEC);
-        rejected("invalid-container.mkv", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.NOT_MP4);
         rejected("invalid-cover-art.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.STREAM_KIND);
         rejected("invalid-subtitle.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.STREAM_KIND);
     }
 
     @Test
     void corruptOrNonMediaInputIsAPermanentFailureNotAToolFault() throws Exception {
-        for (String name : new String[] {"corrupt-truncated.mp4", "corrupt-garbage.bin"}) {
+        // The matroska file is well formed, but only the MP4/MOV demuxer is allowed to read input, so it never
+        // reaches the policy: it is as unreadable as noise.
+        for (String name : new String[] {"corrupt-truncated.mp4", "corrupt-garbage.bin", "corrupt-truncated-early.mp4",
+                "corrupt-ftyp-only.mp4", "corrupt-empty.mp4", "invalid-container.mkv"}) {
             assertThatThrownBy(() -> prober.probe(fixture(name), () -> false)).as(name)
                     .isInstanceOf(MediaProber.Unreadable.class);
         }
@@ -155,5 +157,71 @@ class FfprobeFixtureIntegrationTest {
         }
         var metadata = ((SourcePolicy.Verdict.Accepted) SourcePolicy.evaluate(prober.probe(odd, () -> false))).metadata();
         assertThat(metadata.displayWidth()).isEqualTo(160);
+    }
+
+    @Test
+    void everyQuarterTurnIsNormalizedAndATiltIsRejected() throws Exception {
+        var half = accepted("valid-rotated-180.mp4");
+        assertThat(half.rotation()).isEqualTo(180);
+        assertThat(half.displayWidth()).isEqualTo(1280);
+        assertThat(half.displayHeight()).isEqualTo(720);
+        var three = accepted("valid-rotated-270.mp4");
+        assertThat(three.rotation()).isEqualTo(270);
+        assertThat(three.displayWidth()).isEqualTo(720);
+        rejected("invalid-rotated-45.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.ROTATION);
+    }
+
+    @Test
+    void headersRewrittenToHideALongClipAreCaughtByTheSampleTable() throws Exception {
+        var report = prober.probe(fixture("invalid-lying-headers.mp4"), () -> false);
+        // The lie is real: every header says one second, so the duration limit alone would let it through.
+        assertThat(report.format().durationSeconds()).isLessThanOrEqualTo(new java.math.BigDecimal("1.1"));
+        assertThat(report.tracks().getFirst().frameCount()).isGreaterThan(600);
+        rejected("invalid-lying-headers.mp4", ProcessingFailure.CORRUPT_INPUT, SourcePolicy.Reason.FRAME_COUNT);
+    }
+
+    @Test
+    void tracksOfVeryDifferentLengthsAreRejected() throws Exception {
+        rejected("invalid-track-lengths.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.TRACK_DURATION);
+    }
+
+    @Test
+    void moreStreamsThanTheParserKeepsAreStillRejected() throws Exception {
+        var report = prober.probe(fixture("invalid-seventy-streams.mp4"), () -> false);
+        assertThat(report.tracks()).hasSize(64);
+        rejected("invalid-seventy-streams.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.EXTRA_AUDIO);
+    }
+
+    @Test
+    void oversizedDimensionsAreRejectedForTheirSize() throws Exception {
+        rejected("invalid-8k.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.RESOLUTION);
+        // The header still reports the declared size even though the tool is not allowed to allocate that frame.
+        var report = prober.probe(fixture("invalid-15k.mp4"), () -> false);
+        assertThat(report.tracks().getFirst().width()).isEqualTo(15000);
+        rejected("invalid-15k.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.RESOLUTION);
+    }
+
+    @Test
+    void aMetadataTagCannotClaimABrandTheFileDoesNotHave() throws Exception {
+        rejected("invalid-brand-qt.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.BRAND);
+        var report = prober.probe(fixture("invalid-brand-spoofed-tag.mp4"), () -> false);
+        // Whatever the ffprobe build does with the tag (the packaged 8.0 replaces the brand, 9.0 appends to it), the
+        // brand comes from the ftyp box itself.
+        assertThat(report.format().majorBrand()).isEqualTo("qt  ");
+        rejected("invalid-brand-spoofed-tag.mp4", ProcessingFailure.UNSUPPORTED_MEDIA, SourcePolicy.Reason.BRAND);
+    }
+
+    @Test
+    void aDescriptionLargerThanTheOutputBudgetIsUnreadableNotTruncated() throws Exception {
+        var small = new FfprobeMediaProber(FfprobeLocator.locate(), Duration.ofSeconds(30), 262144);
+        assertThatThrownBy(() -> small.probe(fixture("invalid-huge-metadata.mp4"), () -> false))
+                .isInstanceOf(MediaProber.Unreadable.class);
+    }
+
+    @Test
+    void theLargestLegitimateIndexIsAcceptedWithItsFrameCountIntact() throws Exception {
+        var report = prober.probe(fixture("valid-dense-600s.mp4"), () -> false);
+        assertThat(report.tracks().getFirst().frameCount()).isEqualTo(18000);
+        assertThat(accepted("valid-dense-600s.mp4").frameRateNumerator()).isEqualTo(30);
     }
 }

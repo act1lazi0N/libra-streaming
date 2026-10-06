@@ -51,17 +51,32 @@ final class FfprobeJson {
                 text(stream.path("avg_frame_rate")), text(stream.path("color_transfer")),
                 text(stream.path("color_primaries")), rotation(stream),
                 Integer.valueOf(1).equals(integer(stream.path("disposition").path("attached_pic"))),
-                integer(stream.path("channels")), integer(stream.path("sample_rate")));
+                integer(stream.path("channels")), integer(stream.path("sample_rate")),
+                decimal(stream.path("duration")), integer(stream.path("nb_frames")));
     }
 
-    /** Side-data display matrix first (current ffprobe), then the legacy {@code rotate} tag. */
+    /**
+     * Side-data display matrix first (current ffprobe), then the legacy {@code rotate} tag. A file that declares
+     * several rotations which disagree has no trustworthy orientation, so it reports NaN and the policy rejects it
+     * instead of letting the first entry win.
+     */
     private static Double rotation(JsonNode stream) {
+        Double found = null;
         for (JsonNode data : stream.path("side_data_list")) {
             var value = decimal(data.path("rotation"));
-            if (value != null) { return value.doubleValue(); }
+            if (value == null) { continue; }
+            if (found != null && !sameTurn(found, value.doubleValue())) { return Double.NaN; }
+            if (found == null) { found = value.doubleValue(); }
         }
         var legacy = decimal(stream.path("tags").path("rotate"));
-        return legacy == null ? null : legacy.doubleValue();
+        if (legacy == null) { return found; }
+        if (found != null && !sameTurn(found, legacy.doubleValue())) { return Double.NaN; }
+        return found != null ? found : legacy.doubleValue();
+    }
+
+    private static boolean sameTurn(double a, double b) {
+        double gap = (((a - b) % 360) + 360) % 360;
+        return gap < 1e-6 || 360 - gap < 1e-6;
     }
 
     private static String text(JsonNode node) {

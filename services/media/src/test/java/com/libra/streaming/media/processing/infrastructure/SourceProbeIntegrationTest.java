@@ -28,6 +28,13 @@ class SourceProbeIntegrationTest extends SourceStorageFixture {
     @Autowired SourceProber prober;
     @Autowired SourceMetadataStore metadata;
 
+    private String scratchListing() throws IOException {
+        try (var files = java.nio.file.Files.walk(configured.scratchDirectory())) {
+            return files.filter(java.nio.file.Files::isRegularFile).map(path -> path.getFileName() + ":"
+                    + path.toFile().length()).toList().toString();
+        }
+    }
+
     private static byte[] fixture(String name) throws IOException { return MediaFixtures.bytes(name); }
 
     private JobLease stagedClaim(String name, byte[][] holder, MediaPersistenceHolder upload) throws Exception {
@@ -110,6 +117,45 @@ class SourceProbeIntegrationTest extends SourceStorageFixture {
                     upload.value.assetId())).as(rejected.fixture()).isEqualTo("FAILED");
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM media_source_metadata", Integer.class)).isZero();
+    }
+
+    @Test
+    void hostileInputsEndInOneControlledFailureWithoutFloodOrReadiness() throws Exception {
+        record Case(String fixture, ProcessingFailure expected) {}
+        for (var hostile : java.util.List.of(new Case("invalid-lying-headers.mp4", ProcessingFailure.CORRUPT_INPUT),
+                new Case("invalid-track-lengths.mp4", ProcessingFailure.UNSUPPORTED_MEDIA),
+                new Case("invalid-seventy-streams.mp4", ProcessingFailure.UNSUPPORTED_MEDIA),
+                new Case("invalid-huge-metadata.mp4", ProcessingFailure.CORRUPT_INPUT),
+                new Case("invalid-8k.mp4", ProcessingFailure.UNSUPPORTED_MEDIA),
+                new Case("invalid-rotated-45.mp4", ProcessingFailure.UNSUPPORTED_MEDIA),
+                new Case("invalid-brand-spoofed-tag.mp4", ProcessingFailure.UNSUPPORTED_MEDIA),
+                new Case("invalid-container.mkv", ProcessingFailure.CORRUPT_INPUT),
+                new Case("corrupt-ftyp-only.mp4", ProcessingFailure.CORRUPT_INPUT),
+                new Case("corrupt-truncated-early.mp4", ProcessingFailure.CORRUPT_INPUT))) {
+            var upload = new MediaPersistenceHolder();
+            var lease = stagedClaim(hostile.fixture(), new byte[1][], upload);
+            int jobs = jdbc.queryForObject("SELECT count(*) FROM media_jobs", Integer.class);
+            long scratch = scratchFiles();
+
+            var result = prober.probe(lease, () -> false);
+
+            assertThat(result).as(hostile.fixture()).isInstanceOf(SourceProber.Result.Rejected.class);
+            var outcome = ((SourceProber.Result.Rejected) result).outcome();
+            assertThat(outcome.failure()).as(hostile.fixture()).isEqualTo(hostile.expected());
+            assertThat(outcome.permanent()).as(hostile.fixture()).isTrue();
+            // One verdict, nothing queued behind it, nothing ready, nothing left in scratch.
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM media_jobs", Integer.class)).as(hostile.fixture())
+                    .isEqualTo(jobs);
+            assertThat(jdbc.queryForObject("SELECT state FROM media_assets WHERE asset_id = ?", String.class,
+                    upload.value.assetId())).as(hostile.fixture()).isEqualTo("PROCESSING");
+            assertThat(metadata.find(lease)).as(hostile.fixture()).isEmpty();
+            assertThat(scratchFiles()).as(hostile.fixture() + " " + scratchListing()).isEqualTo(scratch);
+            assertThat(leases.fail(lease, outcome.failure())).isTrue();
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_source_metadata", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_assets WHERE state = 'READY'", Integer.class))
+                .isZero();
     }
 
     @Test

@@ -22,7 +22,7 @@ The policy judges stream facts only. Filename, MIME type and the declared durati
 
 | Fact | Accepted | Otherwise |
 | --- | --- | --- |
-| Container | `format_name` contains `mov` and `mp4`, major brand in `isom iso2 iso4 iso5 iso6 mp41 mp42 avc1` | `UNSUPPORTED_MEDIA` (QuickTime `qt`, Matroska, anything else) |
+| Container | `format_name` contains `mov` and `mp4`, major brand in `isom iso2 iso4 iso5 iso6 mp41 mp42 avc1` | `UNSUPPORTED_MEDIA` (QuickTime `qt`, other ISO brands). Since M20 the brand is read from the file's `ftyp` box and only the MP4/MOV demuxer reads input, so Matroska and other containers end as unreadable (`CORRUPT_INPUT`) |
 | Duration | From the container, greater than 0 and at most 600.000 s, stored as milliseconds | missing, zero, negative, non-finite: `CORRUPT_INPUT`; longer: `UNSUPPORTED_MEDIA` |
 | Streams | Exactly one video track, at most one audio track, nothing else | extra video, extra audio, cover art, subtitles, timecode or data tracks: `UNSUPPORTED_MEDIA`, whatever their order |
 | Video | H.264; profile Baseline, Constrained Baseline, Main or High; `yuv420p` | other codec, High 10/4:2:2/4:4:4, other pixel formats: `UNSUPPORTED_MEDIA` |
@@ -57,6 +57,9 @@ Every reason above is the same two stable codes the worker already persists, `UN
 The probe runs outside any database transaction. Selection and recording are separate short transactions.
 
 ## Process boundary
+
+> M20 tightened this boundary (forced MP4/MOV demuxer, explicit probe and allocation budgets, brand read from
+> `ftyp`); the argument list below is the M19 baseline. See [M20](media-probe-hardening-m20.md).
 
 `FfprobeMediaProber` runs one executable with a fixed argument list: `-v error -hide_banner -protocol_whitelist
 file -print_format json -show_format -show_streams -i file:<absolute scratch path>`. The path is generated

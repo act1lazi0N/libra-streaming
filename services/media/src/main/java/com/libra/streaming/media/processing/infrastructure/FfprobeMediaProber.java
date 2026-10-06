@@ -16,12 +16,16 @@ import java.util.function.BooleanSupplier;
 
 /**
  * Runs one trusted ffprobe executable with a fixed, structured argument list. The input is only ever a local file
- * addressed with the {@code file:} protocol, the protocol whitelist stops a container from referencing anything
- * else, and stdout is bounded. Process output, stderr and paths never leave this class: failures are reported
- * only as {@link MediaProber.Unavailable} (retry) or {@link MediaProber.Unreadable} (permanent).
+ * addressed with the {@code file:} protocol, the protocol whitelist and a forced MP4/MOV demuxer stop a container
+ * from referencing anything else, and stdout is bounded. Process output, stderr and paths never leave this class:
+ * failures are reported only as {@link MediaProber.Unavailable} (retry) or {@link MediaProber.Unreadable} (permanent).
  */
 final class FfprobeMediaProber implements MediaProber {
     private static final Duration TERMINATION_GRACE = Duration.ofSeconds(5);
+    private static final long PROBE_BYTES = 8L * 1024 * 1024;
+    private static final long ANALYZE_MICROS = 10_000_000L;
+    /** Largest single allocation the tool may make: far above any accepted source, far below a hostile frame. */
+    private static final long MAX_ALLOC_BYTES = 32L * 1024 * 1024;
     private final Path executable;
     private final Duration timeout;
     private final int maxOutputBytes;
@@ -48,10 +52,27 @@ final class FfprobeMediaProber implements MediaProber {
         } catch (IOException exception) {
             throw new Unavailable();
         }
-        // "file:" pins the protocol, so a name that looks like a URL or option can never change the meaning.
-        var command = List.of(executable.toString(), "-v", "error", "-hide_banner", "-protocol_whitelist", "file",
-                "-print_format", "json", "-show_format", "-show_streams", "-i", "file:" + real);
-        return FfprobeJson.parse(run(command, cancelled));
+        var parsed = FfprobeJson.parse(run(command(executable, real), cancelled));
+        // The brand tag in ffprobe's output can be written by the file itself; the ftyp box cannot be faked that way.
+        var format = parsed.format();
+        return new ProbeReport(new ProbeReport.Format(format.names(), Ftyp.majorBrand(real), format.durationSeconds()),
+                parsed.tracks());
+    }
+
+    /**
+     * The one argument list ever run on untrusted input. Nothing in it is derived from the file except the final
+     * operand: {@code file:} pins the protocol so a name that looks like a URL or option never changes meaning, the
+     * protocol whitelist stops a container from opening anything else, and {@code -f mov} allows only the MP4/MOV
+     * demuxer, so playlists, concat scripts and descriptors are never interpreted at all. The probe and analysis
+     * budgets are explicit rather than inherited from the tool's defaults. {@code -max_alloc} matters most: a header can
+     * declare a frame of hundreds of megapixels, and without the cap the probe's first decoded frame is allocated
+     * before any policy can look at the dimensions (a 650 KB file made the packaged tool use 544 MB).
+     */
+    static List<String> command(Path executable, Path real) {
+        return List.of(executable.toString(), "-v", "error", "-hide_banner", "-f", "mov", "-protocol_whitelist",
+                "file", "-probesize", Long.toString(PROBE_BYTES), "-analyzeduration", Long.toString(ANALYZE_MICROS),
+                "-max_alloc", Long.toString(MAX_ALLOC_BYTES), "-print_format", "json", "-show_format", "-show_streams",
+                "-i", "file:" + real);
     }
 
     /** First line of {@code ffprobe -version}, for the runtime log and the evidence record. */

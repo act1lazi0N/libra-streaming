@@ -34,8 +34,18 @@ public interface SourceStorage {
     record StagedCopy(Path file, long bytes, String sha256) implements AutoCloseable {
         @Override
         public void close() {
-            try { Files.deleteIfExists(file); }
-            catch (IOException ignored) { /* A leftover scratch file is reconciled by the later cleanup milestone. */ }
+            // Windows can refuse to delete a file for a moment after a process that held it was killed (a probe cut
+            // off for output or time), so a few short retries keep that from leaving scratch behind.
+            for (int attempt = 0; attempt < 4; attempt++) {
+                try {
+                    Files.deleteIfExists(file);
+                    return;
+                } catch (IOException busy) {
+                    try { Thread.sleep(25L << attempt); }
+                    catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+                }
+            }
+            // A leftover scratch file is reconciled by the later cleanup milestone.
         }
     }
 
