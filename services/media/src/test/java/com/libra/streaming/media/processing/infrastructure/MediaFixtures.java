@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
  */
 final class MediaFixtures {
     private static final Path DIRECTORY = Path.of("target", "media-fixtures").toAbsolutePath();
-    private static final String MARKER = ".complete";
+    private static final String MARKER = ".complete-m21-2";
     private static final List<String> H264 = List.of("-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
             "-b:v", "150k", "-g", "30");
     private static final List<String> AAC = List.of("-c:a", "aac", "-b:a", "48k");
@@ -39,7 +39,7 @@ final class MediaFixtures {
 
     static byte[] bytes(String name) throws IOException { return Files.readAllBytes(file(name)); }
 
-    private static Path ffmpeg() {
+    static Path ffmpeg() {
         var configured = System.getenv("LIBRA_FFMPEG_PATH");
         if (configured != null && !configured.isBlank()) { return Path.of(configured).toAbsolutePath(); }
         var sibling = FfprobeLocator.locate().resolveSibling(
@@ -90,6 +90,29 @@ final class MediaFixtures {
             // Longest accepted clip: 600 seconds of a flat picture at 1 fps.
             run(tool, join(of("-f", "lavfi", "-i", "color=c=blue:size=64x64:rate=1", "-t", "600"), H264,
                     of("-an"), FAST_START, of(out.resolve("valid-600s.mp4").toString())));
+
+            // M21 encode inputs. A 20 second 720p clip whose source has a single keyframe, so the output's four second
+            // segments cannot come from the source's own structure; a portrait clip stored upright; mono 44.1 kHz and
+            // 5.1 audio, to see channels and rate normalized.
+            // -t is an output option here (after the last input), so audio and video are the same length.
+            run(tool, join(of("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30"), TONE, of("-t", "20"),
+                    of("-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p", "-b:v", "1500k", "-g", "600",
+                            "-keyint_min", "600", "-sc_threshold", "0"), AAC, FAST_START,
+                    of(out.resolve("valid-720p-20s-aac.mp4").toString())));
+            run(tool, join(pattern("1080x1920", 30, 3), H264, of("-an"), FAST_START,
+                    of(out.resolve("valid-portrait-1080x1920.mp4").toString())));
+            run(tool, join(of("-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-f", "lavfi", "-i",
+                    "sine=frequency=330:sample_rate=44100", "-ac", "1", "-t", "2"), H264, AAC, FAST_START,
+                    of(out.resolve("valid-mono-44100.mp4").toString())));
+            run(tool, join(of("-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-f", "lavfi", "-i",
+                    "sine=frequency=330:sample_rate=48000", "-ac", "6", "-t", "2"), H264,
+                    of("-c:a", "aac", "-b:a", "192k"), FAST_START,
+                    of(out.resolve("valid-surround-6ch.mp4").toString())));
+
+            // Pure noise at 1080p: the worst case for an encoder's output size (about 44 MB for ten seconds).
+            run(tool, join(pattern("1920x1080", 30, 10), of("-vf", "noise=alls=100:allf=t+u", "-c:v", "libx264",
+                    "-profile:v", "high", "-pix_fmt", "yuv420p", "-b:v", "15M", "-an"), FAST_START,
+                    of(out.resolve("valid-noise-1080p-10s.mp4").toString())));
 
             // Rejected for policy.
             run(tool, join(pattern("640x360", 30, 1), of("-c:v", "libx265", "-pix_fmt", "yuv420p", "-an", "-tag:v",

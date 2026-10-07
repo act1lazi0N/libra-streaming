@@ -46,6 +46,11 @@ libra:
       executable: ${MEDIA_FFPROBE_PATH:}
       timeout: ${MEDIA_FFPROBE_TIMEOUT:20s}
       max-output-bytes: ${MEDIA_FFPROBE_MAX_OUTPUT_BYTES:262144}
+    transcode:
+      executable: ${MEDIA_FFMPEG_PATH:}
+      timeout: ${MEDIA_FFMPEG_TIMEOUT:15m}
+      threads: ${MEDIA_FFMPEG_THREADS:2}
+      max-output-bytes: ${MEDIA_FFMPEG_MAX_OUTPUT_BYTES:314572800}
     core-binding:
       enabled: ${MEDIA_CORE_BINDING_ENABLED:false}
       base-url: ${MEDIA_CORE_BINDING_BASE_URL:}

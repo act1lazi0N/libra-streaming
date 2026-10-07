@@ -21,7 +21,6 @@ import java.util.function.BooleanSupplier;
  * failures are reported only as {@link MediaProber.Unavailable} (retry) or {@link MediaProber.Unreadable} (permanent).
  */
 final class FfprobeMediaProber implements MediaProber {
-    private static final Duration TERMINATION_GRACE = Duration.ofSeconds(5);
     private static final long PROBE_BYTES = 8L * 1024 * 1024;
     private static final long ANALYZE_MICROS = 10_000_000L;
     /** Largest single allocation the tool may make: far above any accepted source, far below a hostile frame. */
@@ -85,15 +84,9 @@ final class FfprobeMediaProber implements MediaProber {
     }
 
     private byte[] run(List<String> command, BooleanSupplier cancelled) throws InterruptedException {
-        var builder = new ProcessBuilder(command)
-                .redirectError(ProcessBuilder.Redirect.DISCARD);
-        // The tool needs nothing from the environment; Windows loads its DLLs through SystemRoot.
-        var inherited = System.getenv("SystemRoot");
-        builder.environment().clear();
-        if (inherited != null) { builder.environment().put("SystemRoot", inherited); }
         Process process;
         try {
-            process = builder.start();
+            process = ToolProcesses.builder(command).start();
         } catch (IOException exception) {
             throw new Unavailable();
         }
@@ -109,7 +102,7 @@ final class FfprobeMediaProber implements MediaProber {
                 if (output.overflowed()) { throw new Unreadable(); }
                 if (System.nanoTime() - deadline > 0) { throw new Unavailable(); }
             }
-            reader.join(TERMINATION_GRACE);
+            reader.join(ToolProcesses.TERMINATION_GRACE);
             // A reader still blocked means something other than the exited tool holds its pipe open.
             if (reader.isAlive()) { throw new Unavailable(); }
             if (output.overflowed() || process.exitValue() != 0) { throw new Unreadable(); }
@@ -117,16 +110,9 @@ final class FfprobeMediaProber implements MediaProber {
         } catch (IOException exception) {
             throw new Unavailable();
         } finally {
-            terminate(process);
+            ToolProcesses.terminate(process);
             reader.interrupt();
         }
-    }
-
-    private static void terminate(Process process) throws InterruptedException {
-        if (!process.isAlive() && process.descendants().findAny().isEmpty()) { return; }
-        process.descendants().forEach(ProcessHandle::destroyForcibly);
-        process.destroyForcibly();
-        process.waitFor(TERMINATION_GRACE.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     /** Collects at most {@code limit} bytes; one byte beyond it marks the output as excessive and stops reading. */

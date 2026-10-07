@@ -55,6 +55,9 @@ final class ScratchSpace implements AutoCloseable {
 
     Path newFile() throws IOException { return Files.createTempFile(directory, "media-", ".part"); }
 
+    /** A fresh empty directory inside this instance's locked directory, deleted with it if its owner never is. */
+    Path newDirectory(String prefix) throws IOException { return Files.createTempDirectory(directory, prefix); }
+
     /** Uploads accept only scratch files, as before per-instance directories existed: anywhere under the root. */
     boolean contains(Path real) { return real.startsWith(root); }
 

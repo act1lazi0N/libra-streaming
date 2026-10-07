@@ -10,8 +10,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 import static org.assertj.core.api.Assertions.*;
 
@@ -23,7 +25,10 @@ import static org.assertj.core.api.Assertions.*;
 class FfprobeFixtureIntegrationTest {
     private static FfprobeMediaProber prober;
     private static String version;
-    @TempDir Path scratch;
+    @TempDir(cleanup = CleanupMode.NEVER) Path scratch;
+
+    @AfterEach
+    void removeScratch() throws Exception { ScratchCleanup.deleteTree(scratch); }
 
     @BeforeAll
     static void locateTool() throws Exception {

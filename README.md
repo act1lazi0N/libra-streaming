@@ -48,8 +48,10 @@ that proves staging bytes and selects a private immutable source under the lease
 scratch-reclaim evidence. [ffprobe validation](docs/media-probe-m19.md) judges the frozen MP4 against the
 first-slice H.264 policy and records only the validated metadata;
 [probe hardening](docs/media-probe-hardening-m20.md) adds the hostile-input matrix, a forced MP4/MOV demuxer and
-resource bounds measured in the packaged image. The worker is disabled by
-default and requires a real handler before enabling; transcoding and HLS remain subsequent milestones.
+resource bounds measured in the packaged image. The [FFmpeg pipeline](docs/media-transcode-m21.md) encodes the frozen
+source into one decodable H.264/AAC HLS rendition inside a local attempt workspace, with a checked inventory and a service-written master
+playlist; it uploads nothing and makes nothing ready. The worker is disabled by
+default and requires a real handler before enabling; output storage, READY and protected HLS delivery remain subsequent milestones.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d
@@ -81,7 +83,7 @@ pnpm.cmd --dir web build
 docker compose --env-file .env -f infra/compose.yaml config --quiet
 ```
 
-The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests plus real ffprobe fixture tests, which need an `ffprobe` on `PATH` or in `LIBRA_FFPROBE_PATH` and an `ffmpeg` beside it or in `LIBRA_FFMPEG_PATH` to generate their fixtures (a missing tool fails the build); FFmpeg transcoding and protected HLS integration remain later work.
+The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests plus real ffprobe fixture tests, which need an `ffprobe` on `PATH` or in `LIBRA_FFPROBE_PATH` and an `ffmpeg` beside it or in `LIBRA_FFMPEG_PATH` to generate their fixtures (a missing tool fails the build); Real ffmpeg transcode tests decode every output; protected HLS integration remains later work.
 
 See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Milestone 7 adds the durable background outbox publisher and recovery operations.
 

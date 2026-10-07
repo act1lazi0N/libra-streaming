@@ -43,6 +43,12 @@ final class S3MediaStorage implements AutoCloseable {
         return scratch.newFile();
     }
 
+    /** An empty private directory for one encoder run; fails before creating it if the disk cannot hold the budget. */
+    Path scratchDirectory(String prefix, long requiredBytes) throws IOException {
+        scratch.requireSpace(requiredBytes);
+        return scratch.newDirectory(prefix);
+    }
+
     /** Releases this instance's scratch lock and removes its directory; Spring infers it as the destroy method. */
     @Override
     public void close() throws IOException { scratch.close(); }

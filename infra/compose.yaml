@@ -157,10 +157,11 @@ services:
       MEDIA_STORAGE_INITIALIZE_BUCKETS: ${MEDIA_STORAGE_INITIALIZE_BUCKETS:-false}
       MEDIA_STORAGE_PROBE_ON_STARTUP: false
       MEDIA_FFPROBE_PATH: /usr/bin/ffprobe
+      MEDIA_FFMPEG_PATH: /usr/bin/ffmpeg
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     read_only: true
     tmpfs:
-      - /tmp:rw,nosuid,noexec,size=536870912,mode=1777
+      - /tmp:rw,nosuid,noexec,size=805306368,mode=1777
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:

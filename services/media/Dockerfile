@@ -9,8 +9,8 @@ COPY services/media/src services/media/src
 RUN mvn -B -pl services/media -am package -DskipTests
 
 FROM eclipse-temurin:21-jre
-# ffprobe only inspects frozen sources (M19). The distribution package is the single trusted executable; its path is
-# passed to the service explicitly and nothing is looked up on PATH.
+# ffprobe inspects frozen sources (M19) and ffmpeg encodes them (M21). The distribution package is the single trusted
+# source of both executables; their paths are passed to the service explicitly and nothing is looked up on PATH.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
