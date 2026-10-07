@@ -57,7 +57,33 @@ class FfmpegTranscodeIntegrationTest {
         var plan = RenditionPlan.of(metadata);
         var workspace = Files.createDirectory(temp.resolve("out-" + Math.abs(name.hashCode())));
         transcoder.transcode(source, plan, workspace, () -> false);
-        return new Encoded(metadata, plan, HlsPackage.seal(workspace, plan));
+        var output = HlsPackage.seal(workspace, plan, metadata.durationMillis());
+        assertClosedPlaylists(output);
+        return new Encoded(metadata, plan, output);
+    }
+
+    /**
+     * Both playlists that leave the workspace name only files of the inventory, by relative name, and every duration
+     * they state is finite and positive; the target duration covers every segment.
+     */
+    private static void assertClosedPlaylists(HlsOutput output) throws IOException {
+        var names = new java.util.HashSet<String>(List.of(output.variantName()));
+        output.segments().forEach(segment -> names.add(segment.name()));
+        var master = Files.readAllLines(output.directory().resolve(output.masterName()));
+        assertThat(master.stream().filter(line -> !line.startsWith("#"))).containsExactly(output.variantName());
+        var variant = Files.readAllLines(output.directory().resolve(output.variantName()));
+        assertThat(variant.stream().filter(line -> !line.startsWith("#")).toList())
+                .containsExactlyElementsOf(output.segments().stream().map(HlsOutput.Segment::name).toList())
+                .allMatch(names::contains);
+        int target = variant.stream().filter(line -> line.startsWith("#EXT-X-TARGETDURATION:"))
+                .mapToInt(line -> Integer.parseInt(line.substring(line.indexOf(':') + 1))).findFirst().orElseThrow();
+        assertThat(target).isPositive();
+        for (var line : variant) {
+            if (!line.startsWith("#EXTINF:")) { continue; }
+            double seconds = Double.parseDouble(line.substring(8, line.length() - 1));
+            assertThat(seconds).isPositive().isFinite();
+            assertThat(Math.round(seconds)).isLessThanOrEqualTo(target);
+        }
     }
 
     private record Run(int exit, String text) {}
@@ -370,6 +396,168 @@ class FfmpegTranscodeIntegrationTest {
         assertThatThrownBy(() -> transcoder.transcode(source, plan, second, cancel::get))
                 .isInstanceOf(InterruptedException.class);
         assertThat(ffmpegProcesses()).isSubsetOf(before);
+    }
+
+    // ---- M22: encoding correctness and resource exhaustion ----
+
+    @Test
+    void aDamagedTailIsAPermanentVerdictEvenThoughTheToolFinalizesAShortPlaylist() throws Exception {
+        var plan = new RenditionPlan(1280, 720, 30, 1, 2);
+        for (var fixture : List.of("corrupt-tail-cut-60.mp4", "corrupt-tail-cut-95.mp4", "corrupt-tail-garbage.mp4")) {
+            var source = MediaFixtures.file(fixture);
+            // The index is whole, so the probe accepts the clip as 20 seconds; only decoding meets the damage.
+            var verdict = SourcePolicy.evaluate(prober.probe(source, () -> false));
+            assertThat(verdict).as(fixture).isInstanceOf(SourcePolicy.Verdict.Accepted.class);
+            var metadata = ((SourcePolicy.Verdict.Accepted) verdict).metadata();
+            assertThat(metadata.durationMillis()).as(fixture).isEqualTo(20_000);
+            assertThat(RenditionPlan.of(metadata)).as(fixture).isEqualTo(plan);
+            var workspace = Files.createDirectory(temp.resolve("tail-" + fixture));
+
+            assertThatThrownBy(() -> transcoder.transcode(source, plan, workspace, () -> false)).as(fixture)
+                    .isInstanceOf(MediaTranscoder.Undecodable.class);
+
+            // ffmpeg still wrote an end tag: without -xerror this exits 0 with 12 s, 18.9 s and 14.1 s of the 20.
+            assertThat(Files.readString(workspace.resolve("rendition.m3u8"))).as(fixture).contains("#EXT-X-ENDLIST");
+            assertThat(workspace.resolve("master.m3u8")).as(fixture).doesNotExist();
+            if (fixture.contains("cut-60")) {
+                // And were that status ever lost, the duration backstop rejects the short rendition by itself.
+                assertThatThrownBy(() -> HlsPackage.seal(workspace, plan, metadata.durationMillis()))
+                        .isInstanceOf(HlsPackage.Malformed.class).hasMessage("DURATION");
+            }
+        }
+    }
+
+    @Test
+    void anEncoderKilledFromOutsideMidOutputIsRetryableAndItsPartialWorkspaceIsNotARendition() throws Exception {
+        var source = MediaFixtures.file("valid-720p-20s-aac.mp4");
+        var plan = new RenditionPlan(1280, 720, 30, 1, 2);
+        var workspace = Files.createDirectory(temp.resolve("killed"));
+        var before = ffmpegProcesses();
+        var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        var encoding = Thread.ofPlatform().start(() -> {
+            try { transcoder.transcode(source, plan, workspace, () -> false); }
+            catch (Throwable thrown) { failure.set(thrown); }
+        });
+        // Wait for real output, then kill the tool the way an operator or the OOM killer would: not through the runner.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        while (!(Files.exists(workspace.resolve("segment-00001.ts")) && Files.size(workspace.resolve("segment-00000.ts")) > 0)) {
+            assertThat(System.nanoTime()).as("first segment written").isLessThan(deadline);
+            Thread.sleep(20);
+        }
+        var children = ProcessHandle.current().descendants().filter(handle -> handle.info().command()
+                .map(command -> Path.of(command).equals(ffmpeg)).orElse(false)).toList();
+        assertThat(children).hasSize(1);
+        assertThat(children.getFirst().destroyForcibly()).isTrue();
+        encoding.join(30_000);
+
+        // Windows reports 1 for a terminated process, POSIX 137: neither may become a verdict on a valid source.
+        assertThat(failure.get()).isInstanceOf(MediaTranscoder.Unavailable.class);
+        try (var files = Files.list(workspace)) {
+            assertThat(files.map(path -> path.getFileName().toString()).toList()).contains("segment-00000.ts")
+                    .doesNotContain("master.m3u8");
+        }
+        // The progressive playlist has no end tag (or does not exist yet): the leftover is never a complete asset.
+        assertThatThrownBy(() -> HlsPackage.seal(workspace, plan, 20_000)).isInstanceOf(HlsPackage.Malformed.class)
+                .extracting(Throwable::getMessage).isIn("INCOMPLETE", "PLAYLIST_MISSING", "HEADER", "SEGMENT_PACKETS");
+        assertThat(ffmpegProcesses()).isSubsetOf(before);
+    }
+
+    @Test
+    void theShortestClipsBecomeOneSegmentWithATargetDurationOfOne() throws Exception {
+        var single = encode("valid-one-frame.mp4");
+        assertDecodes(single.output());
+        assertThat(single.source().durationMillis()).isEqualTo(33);
+        assertThat(single.output().segments()).hasSize(1);
+        assertThat(single.output().durationMillis()).isBetween(30L, 40L);
+        assertThat(Integer.parseInt(video(single.output()).get("nb_read_frames"))).isOne();
+        // ffmpeg wrote a target duration of 0 for this clip; the stored playlist says 1.
+        assertThat(Files.readString(single.output().directory().resolve("rendition.m3u8")))
+                .contains("#EXT-X-TARGETDURATION:1\n");
+
+        var tenth = encode("valid-100ms-aac.mp4");
+        assertDecodes(tenth.output());
+        assertThat(tenth.output().durationMillis()).isBetween(90L, 110L);
+        assertThat(Integer.parseInt(video(tenth.output()).get("nb_read_frames"))).isEqualTo(3);
+        assertThat(audio(tenth.output())).containsEntry("codec_name", "aac").containsEntry("channels", "2");
+    }
+
+    @Test
+    void theSizeBoundariesOfThePolicyKeepAspectRatioWithoutEnlargingAndStayEven() throws Exception {
+        record Case(String fixture, int width, int height) {}
+        for (var shape : List.of(new Case("valid-16x16.mp4", 16, 16),
+                // 1920x16 fits the landscape box at 1280 x 10.67, rounded and made even: 1280 x 10.
+                new Case("valid-strip-1920x16.mp4", 1280, 10), new Case("valid-strip-16x1920.mp4", 10, 1280),
+                // An odd display width (147) is only reachable through the pixel aspect ratio; it is rounded down.
+                new Case("valid-odd-sar-147x64.mp4", 146, 64))) {
+            var encoded = encode(shape.fixture());
+            assertThat(encoded.plan().width()).as(shape.fixture()).isEqualTo(shape.width());
+            assertThat(encoded.plan().height()).as(shape.fixture()).isEqualTo(shape.height());
+            assertThat(encoded.plan().width()).as(shape.fixture()).isLessThanOrEqualTo(encoded.source().displayWidth());
+            assertThat(encoded.plan().height()).as(shape.fixture()).isLessThanOrEqualTo(encoded.source().displayHeight());
+            assertDecodes(encoded.output());
+            assertThat(video(encoded.output())).as(shape.fixture())
+                    .containsEntry("width", Integer.toString(shape.width()))
+                    .containsEntry("height", Integer.toString(shape.height()))
+                    .containsEntry("level", "31");
+            assertThat(video(encoded.output()).get("sample_aspect_ratio")).as(shape.fixture()).isIn("1:1", "N/A");
+        }
+    }
+
+    @Test
+    void aVariableRateSourceIsDeliveredAtItsAverageRateAndNeverAboveTheLevelLimit() throws Exception {
+        var encoded = encode("valid-vfr-27fps.mp4");
+        var output = encoded.output();
+
+        assertThat(encoded.plan().frameRateNumerator()).isEqualTo(300);
+        assertThat(encoded.plan().frameRateDenominator()).isEqualTo(11);
+        assertDecodes(output);
+        var facts = video(output);
+        // Left to itself ffmpeg pads this clip to its nominal 60 fps (237 frames), past level 3.1 at 720p and against
+        // the master's FRAME-RATE; the output is constant at the validated average instead.
+        assertThat(facts).containsEntry("r_frame_rate", "300/11").containsEntry("level", "31");
+        assertThat(Integer.parseInt(facts.get("nb_read_frames"))).isBetween(100, 112);
+        assertThat(smallestFrameGapSeconds(output)).isGreaterThan(1 / 30.0 - 0.001);
+        assertThat(Files.readString(output.directory().resolve("master.m3u8"))).contains("FRAME-RATE=27.273");
+    }
+
+    @Test
+    void audioAndVideoStayInStepIncludingAnAudioTrackThatStartsLate() throws Exception {
+        for (var fixture : List.of("valid-sync-flash-beep.mp4", "valid-sync-late-audio.mp4")) {
+            var output = encode(fixture).output();
+            assertDecodes(output);
+            var events = flashAndBeep(output.directory().resolve(output.masterName()));
+            // The flash and the beep start together at 2.0 s in the source: one video frame plus one AAC frame apart
+            // is the most that rounding to frame boundaries can explain.
+            assertThat(events[1] - events[0]).as(fixture).isBetween(-0.040, 0.040);
+            assertThat(events[0]).as(fixture).isBetween(1.95, 2.10);
+        }
+        // Audio 1.5 s longer than the video is inside the policy's track slack; the rendition follows the video.
+        var longer = encode("valid-audio-longer.mp4");
+        assertDecodes(longer.output());
+        assertThat(longer.source().durationMillis()).isEqualTo(7_500);
+        assertThat(longer.output().durationMillis()).isBetween(5_900L, 7_600L);
+    }
+
+    /** Start times, in the output's own timeline, of the first non-black picture and the first sound. */
+    private double[] flashAndBeep(Path master) throws Exception {
+        var run = run(ffmpeg, "-hide_banner", "-nostats", "-i", master.toString(), "-vf",
+                "blackdetect=d=0.01:pix_th=0.1", "-af", "silencedetect=n=-30dB:d=0.05", "-f", "null", "-");
+        var flash = java.util.regex.Pattern.compile("black_end:([0-9.]+)").matcher(run.text());
+        var beep = java.util.regex.Pattern.compile("silence_end: ([0-9.]+)").matcher(run.text());
+        assertThat(flash.find()).as(run.text()).isTrue();
+        assertThat(beep.find()).as(run.text()).isTrue();
+        return new double[] {Double.parseDouble(flash.group(1)), Double.parseDouble(beep.group(1))};
+    }
+
+    private double smallestFrameGapSeconds(HlsOutput output) throws Exception {
+        var run = run(ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time", "-of",
+                "csv=p=0", output.directory().resolve(output.masterName()).toString());
+        // The csv writer may end a row with an empty side-data column ("1.473333,").
+        var times = run.text().lines().filter(line -> !line.isBlank()).map(line -> line.split(",")[0])
+                .mapToDouble(Double::parseDouble).sorted().toArray();
+        double smallest = Double.MAX_VALUE;
+        for (int index = 1; index < times.length; index++) { smallest = Math.min(smallest, times[index] - times[index - 1]); }
+        return smallest;
     }
 
     /** Process ids whose executable is the ffmpeg under test; a survivor would be one that was not there before. */

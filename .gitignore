@@ -4,6 +4,7 @@
 AGENTS.md
 CLAUDE.md
 .gitnexus/
+.gemini/
 
 # Python local environments and caches (CI helper scripts under infra/)
 .venv/

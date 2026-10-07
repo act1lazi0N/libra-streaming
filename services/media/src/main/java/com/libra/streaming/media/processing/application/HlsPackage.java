@@ -12,15 +12,18 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * Turns the files an encoder left in a workspace into a checked, closed HLS inventory and writes the master
- * playlist that points at it. The encoder's own exit status is never trusted on its own: the variant playlist must
- * use only the tags and names this pipeline produces, every segment it names must exist and be non-empty, and
- * nothing else may be in the directory. Anything unexpected is {@link Malformed}.
+ * Turns the files an encoder left in a workspace into a checked, closed HLS inventory and writes both playlists that
+ * describe it. The encoder's own exit status is never trusted on its own: the variant playlist must use only the tags
+ * and names this pipeline produces, every segment it names must exist and be whole MPEG-TS packets, nothing else may
+ * be in the directory, and together the segments must last as long as the probed source. Anything unexpected is
+ * {@link Malformed}. The encoder's variant playlist is then replaced by one written from the checked inventory, so
+ * neither playlist that leaves the workspace contains a byte the encoder chose.
  */
 public final class HlsPackage {
     public static final String MASTER = "master.m3u8";
@@ -33,6 +36,9 @@ public final class HlsPackage {
     private static final Pattern EXTINF = Pattern.compile("#EXTINF:(\\d{1,5}(?:\\.\\d{1,9})?),");
     private static final Pattern TARGET = Pattern.compile("#EXT-X-TARGETDURATION:(\\d{1,3})");
     private static final Pattern VERSION = Pattern.compile("#EXT-X-VERSION:\\d{1,2}");
+    /** An MPEG-TS packet: what a segment is made of, each one starting with the sync byte. */
+    static final int TS_PACKET = 188;
+    private static final int TS_SYNC = 0x47;
 
     private HlsPackage() {}
 
@@ -42,15 +48,23 @@ public final class HlsPackage {
     }
 
     /**
-     * Verifies the variant playlist and its segments in {@code directory} and writes {@link #MASTER}. The returned
-     * inventory describes exactly what was found, so a later stage stores that and nothing else.
+     * Verifies the variant playlist and its segments in {@code directory} against the plan and the probed source's
+     * duration, then rewrites {@link #VARIANT} and writes {@link #MASTER}. The returned inventory describes exactly
+     * what was found, so a later stage stores that and nothing else.
+     *
+     * <p>The duration check is the backstop for an encoder that stopped early without saying so: ffmpeg finalizes a
+     * well-formed, shorter playlist when it catches a signal or meets a damaged tail. It allows the slack the source
+     * policy allows between a source's own tracks, since the rendition follows the video track while the source's
+     * duration is that of its longest track.
      */
-    public static HlsOutput seal(Path directory, RenditionPlan plan) {
+    public static HlsOutput seal(Path directory, RenditionPlan plan, long sourceDurationMillis) {
+        if (sourceDurationMillis < 1 || sourceDurationMillis > SourceMetadata.MAX_DURATION_MILLIS) {
+            throw new IllegalArgumentException("Source duration");
+        }
         try {
             var entries = parseVariant(read(directory.resolve(VARIANT)));
             var segments = new ArrayList<HlsOutput.Segment>();
             long duration = 0;
-            long bytes = Files.size(directory.resolve(VARIANT));
             long segmentBytes = 0;
             long peak = 0;
             for (var entry : entries) {
@@ -58,25 +72,47 @@ public final class HlsPackage {
                 if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) { throw new Malformed("SEGMENT_MISSING"); }
                 long size = Files.size(file);
                 if (size < 1) { throw new Malformed("SEGMENT_EMPTY"); }
+                requireTransportPackets(file, size);
                 segments.add(new HlsOutput.Segment(entry.name(), entry.durationMillis(), size));
                 duration += entry.durationMillis();
                 segmentBytes += size;
                 peak = Math.max(peak, bitsPerSecond(size, entry.durationMillis()));
             }
-            if (duration < 1 || duration > SourceMetadata.MAX_DURATION_MILLIS + 10_000) {
+            if (Math.abs(duration - sourceDurationMillis) > SourcePolicy.durationSlackMillis(sourceDurationMillis)) {
                 throw new Malformed("DURATION");
             }
             requireNoStrangers(directory, segments);
             long average = bitsPerSecond(segmentBytes, duration);
             long bandwidth = Math.max(peak, average);
+            var variant = variant(segments);
             var master = master(plan, bandwidth, average);
+            Files.writeString(directory.resolve(VARIANT), variant, StandardCharsets.UTF_8);
             Files.writeString(directory.resolve(MASTER), master, StandardCharsets.UTF_8);
-            bytes += segmentBytes + master.getBytes(StandardCharsets.UTF_8).length;
+            long bytes = segmentBytes + variant.getBytes(StandardCharsets.UTF_8).length
+                    + master.getBytes(StandardCharsets.UTF_8).length;
             return new HlsOutput(directory, MASTER, VARIANT, segments, plan.width(), plan.height(),
                     plan.hasAudio(), duration, bytes, bandwidth, average);
         } catch (IOException exception) {
             throw new Malformed("IO");
         }
+    }
+
+    /**
+     * The variant playlist as this service states it: the checked segments in order with their durations to the
+     * millisecond, and a target duration of at least one second. ffmpeg declares a target duration of 0 for a clip
+     * shorter than half a second, which the specification tolerates and players need not.
+     */
+    static String variant(List<HlsOutput.Segment> segments) {
+        long longest = segments.stream().mapToLong(HlsOutput.Segment::durationMillis).max().orElseThrow();
+        var text = new StringBuilder("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:")
+                .append(Math.max(1, Math.ceilDiv(longest, 1000)))
+                .append("\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-INDEPENDENT-SEGMENTS\n");
+        for (var segment : segments) {
+            long millis = segment.durationMillis();
+            text.append("#EXTINF:").append(String.format(Locale.ROOT, "%d.%03d", millis / 1000, millis % 1000))
+                    .append(",\n").append(segment.name()).append('\n');
+        }
+        return text.append("#EXT-X-ENDLIST\n").toString();
     }
 
     /** A single-variant master playlist whose only reference is the relative variant name. */
@@ -113,7 +149,9 @@ public final class HlsPackage {
                 if (!matcher.matches() || Integer.parseInt(matcher.group(1)) != entries.size()) {
                     throw new Malformed("SEGMENT_NAME");
                 }
-                entries.add(new Entry(line, pending.movePointRight(3).setScale(0, RoundingMode.HALF_UP).longValueExact()));
+                // A positive duration under half a millisecond still counts as one, so no segment is ever 0.000.
+                long millis = pending.movePointRight(3).setScale(0, RoundingMode.HALF_UP).longValueExact();
+                entries.add(new Entry(line, Math.max(1, millis)));
                 pending = null;
             } else if (line.startsWith("#EXTINF:")) {
                 var matcher = EXTINF.matcher(line);
@@ -135,7 +173,8 @@ public final class HlsPackage {
                 throw new Malformed("TAG");
             }
         }
-        if (!vod || !ended || !independent || pending != null || entries.isEmpty() || target < 1) {
+        // ffmpeg declares a target of 0 for a clip under half a second; the rewritten playlist states at least 1.
+        if (!vod || !ended || !independent || pending != null || entries.isEmpty() || target < 0) {
             throw new Malformed("INCOMPLETE");
         }
         if (entries.size() > MAX_SEGMENTS) { throw new Malformed("SEGMENT_COUNT"); }
@@ -144,6 +183,17 @@ public final class HlsPackage {
             if (Math.round(entry.durationMillis() / 1000.0) > target) { throw new Malformed("TARGET_DURATION"); }
         }
         return entries;
+    }
+
+    /**
+     * A segment ffmpeg finished is a whole number of transport packets starting with the sync byte. A write cut short
+     * by a full disk usually is not, so a playlist that survived the cut cannot vouch for a truncated segment.
+     */
+    private static void requireTransportPackets(Path file, long size) throws IOException {
+        if (size % TS_PACKET != 0) { throw new Malformed("SEGMENT_PACKETS"); }
+        try (var input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            if (input.read() != TS_SYNC) { throw new Malformed("SEGMENT_PACKETS"); }
+        }
     }
 
     private static void requireNoStrangers(Path directory, List<HlsOutput.Segment> segments) throws IOException {

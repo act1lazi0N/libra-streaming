@@ -50,7 +50,10 @@ first-slice H.264 policy and records only the validated metadata;
 [probe hardening](docs/media-probe-hardening-m20.md) adds the hostile-input matrix, a forced MP4/MOV demuxer and
 resource bounds measured in the packaged image. The [FFmpeg pipeline](docs/media-transcode-m21.md) encodes the frozen
 source into one decodable H.264/AAC HLS rendition inside a local attempt workspace, with a checked inventory and a service-written master
-playlist; it uploads nothing and makes nothing ready. The worker is disabled by
+playlist; it uploads nothing and makes nothing ready. [Encoding hardening](docs/media-encoding-hardening-m22.md)
+makes decode errors fatal, delivers variable-rate sources at their average rate, checks the rendition against the
+source duration, writes the variant playlist from the checked inventory and stops blaming the input for signals,
+external kills and full disks. The worker is disabled by
 default and requires a real handler before enabling; output storage, READY and protected HLS delivery remain subsequent milestones.
 
 ```powershell

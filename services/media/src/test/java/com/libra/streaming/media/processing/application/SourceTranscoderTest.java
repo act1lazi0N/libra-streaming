@@ -127,6 +127,15 @@ class SourceTranscoderTest {
     }
 
     @Test
+    void aCleanExitWithARenditionShorterThanTheSourceIsRetriedAndNothingIsHandedOver() throws Exception {
+        // The probe says eight seconds; a caught signal or a damaged tail leaves a finished playlist of 4.5.
+        transcoder.lastDuration = "0.500000";
+        assertRejected(stage.transcode(lease, () -> false), ProcessingFailure.PROCESSING_FAILED, false);
+        assertThat(workspaces.open).isEmpty();
+        assertThat(scratchEntries()).isZero();
+    }
+
+    @Test
     void anUnavailableScratchDiskIsRetryableAndNothingIsEncoded() throws Exception {
         workspaces.failure = true;
         assertRejected(stage.transcode(lease, () -> false), ProcessingFailure.PROCESSING_FAILED, false);
@@ -317,6 +326,7 @@ class SourceTranscoderTest {
         Exception failure;
         boolean writeNothing;
         boolean stray;
+        String lastDuration = "3.500000";
         Runnable afterEncode = () -> { };
         int calls;
 
@@ -333,14 +343,21 @@ class SourceTranscoderTest {
                 Files.writeString(workspace.resolve("rendition.m3u8"), "#EXTM3U\n#EXT-X-VERSION:6\n"
                         + "#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n"
                         + "#EXT-X-INDEPENDENT-SEGMENTS\n#EXTINF:4.000000,\nsegment-00000.ts\n"
-                        + "#EXTINF:3.500000,\nsegment-00001.ts\n#EXT-X-ENDLIST\n");
-                Files.write(workspace.resolve("segment-00000.ts"), new byte[2000]);
-                Files.write(workspace.resolve("segment-00001.ts"), new byte[1500]);
+                        + "#EXTINF:" + lastDuration + ",\nsegment-00001.ts\n#EXT-X-ENDLIST\n");
+                Files.write(workspace.resolve("segment-00000.ts"), packets(11));
+                Files.write(workspace.resolve("segment-00001.ts"), packets(8));
                 if (stray) { Files.writeString(workspace.resolve("stray.txt"), "x"); }
             } catch (IOException exception) {
                 throw new AssertionError(exception);
             }
             afterEncode.run();
+        }
+
+        /** Whole transport packets, each starting with the sync byte, as a finished segment is. */
+        private static byte[] packets(int count) {
+            var content = new byte[count * 188];
+            for (int at = 0; at < content.length; at += 188) { content[at] = 0x47; }
+            return content;
         }
     }
 }

@@ -85,6 +85,10 @@ class FfmpegMediaTranscoderProcessTest {
         var executable = directory.resolve("ffmpeg");
         var withAudio = FfmpegMediaTranscoder.command(executable, source, workspace, PLAN, 3);
         assertThat(withAudio).containsSubsequence("-map", "0:v:0", "-map", "0:a:0");
+        // Decode errors are fatal, and the input is named only after every global and input option.
+        assertThat(withAudio.indexOf("-xerror")).isPositive().isLessThan(withAudio.indexOf("-i"));
+        // Constant output rate at the plan's (validated average) rate, before the encoder.
+        assertThat(withAudio).containsSubsequence("-fps_mode", "cfr", "-r", "30/1", "-c:v", "libx264");
         assertThat(withAudio).contains("scale=1280:720:flags=bicubic,setsar=1,format=yuv420p");
         assertThat(withAudio).containsSubsequence("-c:v", "libx264", "-preset", "veryfast", "-profile:v", "main",
                 "-level:v", "3.1");
@@ -103,6 +107,10 @@ class FfmpegMediaTranscoderProcessTest {
 
         var mono = FfmpegMediaTranscoder.command(executable, source, workspace, new RenditionPlan(160, 96, 15, 1, 1), 2);
         assertThat(mono).containsSubsequence("-ac", "1");
+
+        var ntsc = FfmpegMediaTranscoder.command(executable, source, workspace,
+                new RenditionPlan(640, 360, 30000, 1001, 0), 2);
+        assertThat(ntsc).containsSubsequence("-fps_mode", "cfr", "-r", "30000/1001");
     }
 
     @Test
@@ -119,13 +127,26 @@ class FfmpegMediaTranscoderProcessTest {
     }
 
     @Test
-    void anOrdinaryFailureStatusIsAPermanentDecodeVerdictWhateverItsNumber() throws Exception {
-        // ffmpeg exits with a status derived from the error code (183 for undecodable data, 127 for a missing file).
-        // On Windows the full negative AVERROR value is the exit status (-1094995529 is "invalid data").
-        for (int status : WINDOWS ? List.of(1, 127, 183, 254, -2, -1094995529) : List.of(1, 127, 183, 254)) {
+    void onlyTheInvalidDataStatusIsAPermanentDecodeVerdict() throws Exception {
+        // ffmpeg exits with its error code: the full negative AVERROR on Windows (-1094995529 is "invalid data"), its
+        // low byte (183) where statuses are eight bits.
+        for (int status : WINDOWS ? List.of(183, -1094995529) : List.of(183)) {
             var tool = script("echo SECRET-DIAGNOSTIC 1>&2 & exit /b " + status, "echo SECRET-DIAGNOSTIC >&2; exit " + status);
             assertThatThrownBy(() -> run(tool)).as("exit " + status)
                     .isInstanceOf(MediaTranscoder.Undecodable.class).hasMessageNotContaining("SECRET");
+        }
+    }
+
+    @Test
+    void everyOtherFailureStatusSaysNothingAboutTheInputAndIsRetryable() throws Exception {
+        // 1: a process terminated from outside on Windows. 255: ffmpeg after catching SIGTERM or SIGINT. 228 / -28:
+        // no space left on the device. 244 / -12: out of memory. 254 / -2: a file that vanished. 127: no such command.
+        var statuses = WINDOWS ? List.of(1, 2, 127, 228, 244, 254, 255, -2, -12, -28, -1094995528)
+                : List.of(1, 2, 127, 228, 244, 254, 255);
+        for (int status : statuses) {
+            var tool = script("echo SECRET-DIAGNOSTIC 1>&2 & exit /b " + status, "echo SECRET-DIAGNOSTIC >&2; exit " + status);
+            assertThatThrownBy(() -> run(tool)).as("exit " + status)
+                    .isInstanceOf(MediaTranscoder.Unavailable.class).hasMessageNotContaining("SECRET");
         }
     }
 
@@ -137,6 +158,15 @@ class FfmpegMediaTranscoderProcessTest {
         }
         var crashed = script("exit /b -1073741819", "kill -SEGV $$");
         assertThatThrownBy(() -> run(crashed)).isInstanceOf(MediaTranscoder.Unavailable.class);
+    }
+
+    @Test
+    void theStatusClassificationIsExact() {
+        assertThat(FfmpegMediaTranscoder.undecodable(-1094995529)).isTrue();
+        assertThat(FfmpegMediaTranscoder.undecodable(183)).isTrue();
+        for (int status : new int[] {0, 1, 182, 184, 255, -183, -1094995528, -1094995530, 0xB7 << 8}) {
+            assertThat(FfmpegMediaTranscoder.undecodable(status)).as("exit " + status).isFalse();
+        }
     }
 
     @Test

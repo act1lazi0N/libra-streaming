@@ -54,7 +54,7 @@ public final class SourceTranscoder {
             if (cancelled.getAsBoolean()) { throw new InterruptedException(); }
             workspace = workspaces.open(lease, outputBudgetBytes);
             transcoder.transcode(copy.file(), plan, workspace.directory(), cancelled);
-            var output = HlsPackage.seal(workspace.directory(), plan);
+            var output = HlsPackage.seal(workspace.directory(), plan, metadata.durationMillis());
             if (cancelled.getAsBoolean()) { throw new InterruptedException(); }
             // An attempt that lost its lease while encoding must not hand its output to anyone.
             if (sources.target(lease).isEmpty()) { return new Result.LeaseLost(); }
@@ -68,9 +68,10 @@ public final class SourceTranscoder {
         } catch (MediaTranscoder.OutputTooLarge tooLarge) {
             return reject(ProcessingFailure.UNSUPPORTED_MEDIA);
         } catch (HlsPackage.Malformed malformed) {
-            // The tool exited cleanly but the workspace is not a whole rendition. ffmpeg's HLS muxer reports success
-            // when it cannot write (a full disk, an unwritable directory), so this is treated as a fault of the
-            // attempt, not a verdict on the input; the job's three-attempt budget bounds a deterministic defect.
+            // The tool exited cleanly but the workspace is not a whole rendition of the probed source. ffmpeg's HLS
+            // muxer reports success when it cannot write (a full disk leaves an empty playlist and a cut segment), so
+            // this is treated as a fault of the attempt, not a verdict on the input; the job's three-attempt budget
+            // bounds a deterministic defect.
             return new Result.Rejected(MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED));
         } finally {
             if (workspace != null) { workspace.close(); }

@@ -27,6 +27,15 @@ public final class SourcePolicy {
 
     private SourcePolicy() {}
 
+    /**
+     * How far a duration derived from this source may stray from its container duration: the slack allowed between
+     * its own tracks (two seconds, or a tenth of the clip if that is more). The rendition is held to the same bound.
+     */
+    public static long durationSlackMillis(long durationMillis) {
+        return Math.max(DURATION_SLACK.movePointRight(3).longValueExact(),
+                BigDecimal.valueOf(durationMillis).multiply(DURATION_SHARE).longValue());
+    }
+
     /** Internal diagnostic only; never persisted, logged with input text, or returned over the API. */
     public enum Reason {
         NO_FORMAT, NOT_MP4, BRAND, DURATION_MISSING, DURATION_RANGE, STREAM_KIND, NO_VIDEO, EXTRA_VIDEO,

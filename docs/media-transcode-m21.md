@@ -53,6 +53,10 @@ judge.
 
 ## Process boundary
 
+M22 revised this table: only the "invalid data" status is now a decode verdict, every other non-zero exit is
+retryable, and the command adds `-xerror` and a constant output rate. See
+[Encoding hardening](media-encoding-hardening-m22.md#process-boundary-revised).
+
 | Condition | Result |
 | --- | --- |
 | Executable cannot start, wall-clock timeout (default 15 min), unusable source or workspace, status that means killed or crashed | `Unavailable`, retryable `PROCESSING_FAILED` |

@@ -1,6 +1,8 @@
 package com.libra.streaming.media.processing.infrastructure;
 
+import com.libra.streaming.media.processing.application.BoundedMediaWorker;
 import com.libra.streaming.media.processing.application.JobStages;
+import com.libra.streaming.media.processing.application.MediaJobHandler;
 import com.libra.streaming.media.processing.application.MediaTranscoder;
 import com.libra.streaming.media.processing.application.SourceProber;
 import com.libra.streaming.media.processing.application.SourceReader;
@@ -13,8 +15,10 @@ import com.libra.streaming.media.upload.infrastructure.MediaPersistenceService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +39,8 @@ class SourceTranscodeIntegrationTest extends SourceStorageFixture {
         registry.add("libra.media.probe.timeout", () -> "30s");
         registry.add("libra.media.transcode.executable", () -> MediaFixtures.ffmpeg().toString());
         registry.add("libra.media.transcode.timeout", () -> "5m");
+        // The 20 s clip that keeps the encoder busy long enough to lose its lease mid-output is 3.9 MB.
+        registry.add("libra.media.storage.max-object-bytes", () -> "8388608");
     }
 
     @Autowired SourceTranscoder transcoder;
@@ -174,6 +180,74 @@ class SourceTranscodeIntegrationTest extends SourceStorageFixture {
 
         assertThat(workspaceDirectories()).isEmpty();
         assertThat(hlsObjects()).isZero();
+    }
+
+    @Test
+    void aLeaseTakenOverMidEncodeStopsTheRealEncoderThroughTheWorkerHeartbeat() throws Exception {
+        byte[] content = MediaFixtures.bytes("valid-720p-20s-aac.mp4");
+        upload = queued(content);
+        stage(upload, content);
+        var claimed = new java.util.concurrent.atomic.AtomicReference<JobLease>();
+        var thrown = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        var returned = new java.util.concurrent.atomic.AtomicReference<SourceTranscoder.Result>();
+        var finished = new java.util.concurrent.CountDownLatch(1);
+        var ended = new java.util.concurrent.atomic.AtomicLong();
+        MediaJobHandler handler = (lease, cancelled) -> {
+            claimed.set(lease);
+            try {
+                var result = transcoder.transcode(lease, cancelled);
+                returned.set(result);
+                if (result instanceof SourceTranscoder.Result.Transcoded done) { done.close(); }
+                return MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED);
+            } catch (InterruptedException | RuntimeException failure) {
+                thrown.set(failure);
+                throw failure;
+            } finally {
+                ended.set(System.nanoTime());
+                finished.countDown();
+            }
+        };
+        var settings = new BoundedMediaWorker.Settings(Duration.ofMillis(50), Duration.ofSeconds(3),
+                Duration.ofMillis(200), Duration.ofSeconds(30), Duration.ofSeconds(10));
+        JobLease successor;
+        long stolen;
+        var reports = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        try (var worker = new BoundedMediaWorker(leases, handler, settings, reports::add)) {
+            worker.start();
+            // Let the worker freeze, probe and start encoding, and wait for the encoder's second segment to open.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(90);
+            while (workspaceDirectories().stream().noneMatch(directory -> Files.exists(directory.resolve("segment-00001.ts")))) {
+                assertThat(finished.getCount()).as("handler ended early: %s %s %s", returned.get(), thrown.get(), reports)
+                        .isOne();
+                assertThat(System.nanoTime()).as("encoder output appeared: %s", reports).isLessThan(deadline);
+                Thread.sleep(20);
+            }
+            // Another instance takes the job over: the old claim runs out and a successor claims attempt 2.
+            expire(claimed.get());
+            successor = claim();
+            stolen = System.nanoTime();
+            assertThat(finished.await(30, TimeUnit.SECONDS)).isTrue();
+        }
+
+        // The heartbeat's failed renewal cancelled the stage and the encoder was killed well before it could finish.
+        assertThat(thrown.get()).isInstanceOf(InterruptedException.class);
+        assertThat(returned.get()).isNull();
+        assertThat(Duration.ofNanos(ended.get() - stolen)).isLessThan(Duration.ofSeconds(3));
+        assertThat(successor.attempt()).isEqualTo(2);
+        assertThat(stageOf(successor)).isEqualTo("CLAIMED");
+        // Nothing of the stale attempt survives: no workspace, no encoder, no output, no recorded outcome.
+        assertThat(workspaceDirectories()).isEmpty();
+        assertThat(ProcessHandle.current().descendants().filter(handle -> handle.info().command()
+                .map(command -> Path.of(command).equals(MediaFixtures.ffmpeg())).orElse(false)).count()).isZero();
+        assertThat(jdbc.queryForObject("SELECT failure_code FROM media_jobs WHERE id = ?", String.class,
+                successor.jobId())).isNull();
+        assertThat(hlsObjects()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // The successor still encodes from the frozen copy the first attempt committed.
+        try (var done = (SourceTranscoder.Result.Transcoded) transcoder.transcode(successor, () -> false)) {
+            assertThat(done.output().segments()).hasSize(5);
+        }
+        assertThat(selectedKey(upload)).isEqualTo(attemptKey(upload, 1));
     }
 
     @Test
