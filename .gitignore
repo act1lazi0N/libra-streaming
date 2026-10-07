@@ -5,6 +5,9 @@ AGENTS.md
 CLAUDE.md
 .gitnexus/
 .gemini/
+GEMINI.md
+package.json
+package-lock.json
 
 # Python local environments and caches (CI helper scripts under infra/)
 .venv/
