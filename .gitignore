@@ -4,7 +4,7 @@
 AGENTS.md
 CLAUDE.md
 .gitnexus/
-.gemini/
+.agents/
 GEMINI.md
 package.json
 package-lock.json
