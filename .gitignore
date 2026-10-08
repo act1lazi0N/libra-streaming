@@ -1,8 +1,11 @@
 # Local Codex configuration and contributor instructions at any depth
 .codex/
 .claude/
+.agents/
 AGENTS.md
 CLAUDE.md
+package.json
+package-lock.json
 
 # Java / Maven generated files (keep Maven Wrapper files tracked)
 target/
