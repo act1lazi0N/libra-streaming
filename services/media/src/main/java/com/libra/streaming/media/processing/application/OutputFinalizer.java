@@ -3,13 +3,8 @@ package com.libra.streaming.media.processing.application;
 import com.libra.streaming.media.processing.domain.JobLease;
 import com.libra.streaming.media.processing.domain.ProcessingFailure;
 import com.libra.streaming.media.processing.domain.SourceMetadata;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -56,7 +51,8 @@ public final class OutputFinalizer implements MediaJobHandler {
         }
         try (var done = (SourceTranscoder.Result.Transcoded) encoded) {
             var output = done.output();
-            // What leaves the workspace must still be exactly what was sealed; the playlists name nothing else.
+            // What leaves the workspace must still be what was sealed; the playlists name nothing else. A change
+            // after this check is caught by the readback against the sealed digests below.
             HlsPackage.requireConsistent(output);
             var inventory = inventory(output);
             if (!selections.beginFinalizing(lease)) { return new Result.LeaseLost(); }
@@ -66,7 +62,8 @@ public final class OutputFinalizer implements MediaJobHandler {
                 if (cancelled.getAsBoolean()) { throw new InterruptedException(); }
                 storage.store(prefix + "/" + item.name(), item.file(), item.contentType());
             }
-            // A write that returned is not proof of a durable, readable object: every one is read back and compared.
+            // A write that returned is not proof of a durable, readable object: every one is read back and compared
+            // with the bytes the seal vouched for.
             for (var item : inventory) {
                 var stored = storage.read(prefix + "/" + item.name(), item.bytes(), cancelled).orElse(null);
                 if (stored == null || stored.bytes() != item.bytes() || !stored.sha256().equals(item.sha256())) {
@@ -91,34 +88,27 @@ public final class OutputFinalizer implements MediaJobHandler {
         return Math.clamp(Math.round(millis / 1000.0), 1, MAX_DURATION_SECONDS);
     }
 
+    /**
+     * What storage must hold, taken from what the seal vouched for and never from a fresh read of the workspace: the
+     * segments' recorded digests and the exact playlist texts. A file that changes after the seal is still uploaded
+     * from the workspace, but its readback can then no longer match.
+     */
     private static List<Item> inventory(HlsOutput output) {
         var items = new ArrayList<Item>();
-        for (var segment : output.segments()) { items.add(item(output.directory(), segment.name(), SEGMENT_TYPE)); }
-        items.add(item(output.directory(), output.variantName(), PLAYLIST_TYPE));
-        items.add(item(output.directory(), output.masterName(), PLAYLIST_TYPE));
+        var directory = output.directory();
+        for (var segment : output.segments()) {
+            items.add(new Item(segment.name(), directory.resolve(segment.name()), SEGMENT_TYPE, segment.bytes(),
+                    segment.sha256()));
+        }
+        items.add(playlist(directory, output.variantName(), output.variantPlaylist()));
+        items.add(playlist(directory, output.masterName(), output.masterPlaylist()));
         return items;
     }
 
-    private static Item item(Path directory, String name, String contentType) {
-        var file = directory.resolve(name);
-        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-            var digest = sha256();
-            byte[] buffer = new byte[65536];
-            long bytes = 0;
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                digest.update(buffer, 0, read);
-                bytes += read;
-            }
-            return new Item(name, file, contentType, bytes, HexFormat.of().formatHex(digest.digest()));
-        } catch (IOException exception) {
-            throw new HlsPackage.Malformed("IO");
-        }
-    }
-
-    private static MessageDigest sha256() {
-        try { return MessageDigest.getInstance("SHA-256"); }
-        catch (NoSuchAlgorithmException missing) { throw new IllegalStateException("SHA-256 unavailable", missing); }
+    private static Item playlist(Path directory, String name, String text) {
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        return new Item(name, directory.resolve(name), PLAYLIST_TYPE, bytes.length,
+                HexFormat.of().formatHex(HlsPackage.sha256().digest(bytes)));
     }
 
     private static Result retry() {

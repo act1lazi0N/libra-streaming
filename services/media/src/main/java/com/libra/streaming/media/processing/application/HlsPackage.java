@@ -9,8 +9,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -72,8 +75,8 @@ public final class HlsPackage {
                 if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) { throw new Malformed("SEGMENT_MISSING"); }
                 long size = Files.size(file);
                 if (size < 1) { throw new Malformed("SEGMENT_EMPTY"); }
-                requireTransportPackets(file, size);
-                segments.add(new HlsOutput.Segment(entry.name(), entry.durationMillis(), size));
+                String sha256 = transportPackets(file, size);
+                segments.add(new HlsOutput.Segment(entry.name(), entry.durationMillis(), size, sha256));
                 duration += entry.durationMillis();
                 segmentBytes += size;
                 peak = Math.max(peak, bitsPerSecond(size, entry.durationMillis()));
@@ -91,32 +94,34 @@ public final class HlsPackage {
             long bytes = segmentBytes + variant.getBytes(StandardCharsets.UTF_8).length
                     + master.getBytes(StandardCharsets.UTF_8).length;
             return new HlsOutput(directory, MASTER, VARIANT, segments, plan.width(), plan.height(),
-                    plan.hasAudio(), duration, bytes, bandwidth, average);
+                    plan.hasAudio(), duration, bytes, bandwidth, average, master);
         } catch (IOException exception) {
             throw new Malformed("IO");
         }
     }
 
     /**
-     * Re-reads a sealed workspace and proves it still holds exactly the inventory {@link #seal} returned: the variant
-     * playlist is the one written for these segments, the master's only reference is that variant, every segment has
-     * its recorded size and nothing else is present. Run just before the files leave the workspace, so no stored
-     * playlist can name anything outside the inventory.
+     * Re-reads a sealed workspace and proves it still holds exactly the inventory {@link #seal} returned: both
+     * playlists are byte for byte the ones written for it, every segment has its recorded size and nothing else is
+     * present. Run just before the files leave the workspace, so no stored playlist can name anything outside the
+     * inventory. Comparing the whole master matters: a player also follows URIs inside tag attributes
+     * ({@code URI="..."}), which a check of the URI lines alone would let through.
+     *
+     * <p>Segment bytes are not re-hashed here; the finalizer compares what storage returns against the digests the
+     * seal recorded, which also catches a change made after this check.
      */
     public static void requireConsistent(HlsOutput output) {
         if (!MASTER.equals(output.masterName()) || !VARIANT.equals(output.variantName())
-                || output.segments().isEmpty()) {
+                || output.segments().isEmpty() || !isServiceMaster(output.masterPlaylist())) {
             throw new Malformed("INVENTORY");
         }
         var directory = output.directory();
         try {
-            if (!read(directory.resolve(VARIANT)).equals(variant(output.segments()))) {
+            if (!read(directory.resolve(VARIANT)).equals(output.variantPlaylist())) {
                 throw new Malformed("VARIANT_CHANGED");
             }
-            var master = read(directory.resolve(MASTER));
-            var references = master.lines().filter(line -> !line.isEmpty() && !line.startsWith("#")).toList();
-            if (!master.startsWith("#EXTM3U\n") || !references.equals(List.of(VARIANT))) {
-                throw new Malformed("MASTER_REFERENCES");
+            if (!read(directory.resolve(MASTER)).equals(output.masterPlaylist())) {
+                throw new Malformed("MASTER_CHANGED");
             }
             for (var segment : output.segments()) {
                 var file = directory.resolve(segment.name());
@@ -220,14 +225,42 @@ public final class HlsPackage {
     }
 
     /**
-     * A segment ffmpeg finished is a whole number of transport packets starting with the sync byte. A write cut short
-     * by a full disk usually is not, so a playlist that survived the cut cannot vouch for a truncated segment.
+     * A segment ffmpeg finished is a whole number of transport packets, each starting with the sync byte. A write cut
+     * short by a full disk usually is not, so a playlist that survived the cut cannot vouch for a truncated segment.
+     * The same single streamed read returns the SHA-256 of exactly the bytes that passed, which is what storage must
+     * later hold.
      */
-    private static void requireTransportPackets(Path file, long size) throws IOException {
+    private static String transportPackets(Path file, long size) throws IOException {
         if (size % TS_PACKET != 0) { throw new Malformed("SEGMENT_PACKETS"); }
+        var digest = sha256();
+        long read = 0;
         try (var input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-            if (input.read() != TS_SYNC) { throw new Malformed("SEGMENT_PACKETS"); }
+            byte[] packet = new byte[TS_PACKET];
+            while (read < size) {
+                if (input.readNBytes(packet, 0, TS_PACKET) != TS_PACKET || (packet[0] & 0xff) != TS_SYNC) {
+                    throw new Malformed("SEGMENT_PACKETS");
+                }
+                digest.update(packet);
+                read += TS_PACKET;
+            }
+            // A file that grew after its size was taken is not the segment that was measured.
+            if (input.read() != -1) { throw new Malformed("SEGMENT_PACKETS"); }
         }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    /** The shape {@link #master} produces: one URI line naming the variant and no URI inside any tag. */
+    private static boolean isServiceMaster(String master) {
+        if (master == null || !master.startsWith("#EXTM3U\n") || !master.endsWith("\n") || master.contains("URI=")) {
+            return false;
+        }
+        var references = master.lines().filter(line -> !line.startsWith("#")).toList();
+        return references.equals(List.of(VARIANT));
+    }
+
+    static MessageDigest sha256() {
+        try { return MessageDigest.getInstance("SHA-256"); }
+        catch (NoSuchAlgorithmException missing) { throw new IllegalStateException("SHA-256 unavailable", missing); }
     }
 
     private static void requireNoStrangers(Path directory, List<HlsOutput.Segment> segments) throws IOException {

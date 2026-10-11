@@ -168,6 +168,51 @@ class OutputFinalizerTest {
     }
 
     @Test
+    void aSegmentRewrittenAfterSealingIsNeverSelectedEvenAtTheSameSize() throws Exception {
+        when(transcoder.transcode(any(), any())).thenAnswer(call -> {
+            var done = transcoded(10_500);
+            // Same name, same size, whole packets: only the bytes the seal vouched for differ.
+            var segment = done.output().directory().resolve("segment-00001.ts");
+            var bytes = Files.readAllBytes(segment);
+            bytes[1] = 0x1f;
+            Files.write(segment, bytes);
+            return done;
+        });
+
+        var result = finalizer.complete(lease, () -> false);
+
+        assertThat(result).isEqualTo(new OutputFinalizer.Result.Rejected(
+                MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED)));
+        assertThat(selections.calls).containsExactly("FINALIZING");
+        assertThat(workspaceClosed).isTrue();
+    }
+
+    @Test
+    void aPlaylistChangedWhileSegmentsAreStoredIsNeverSelected() throws Exception {
+        var damaged = new Storage() {
+            @Override public void store(String key, Path file, String contentType) {
+                if (key.endsWith("/segment-00000.ts")) {
+                    // Rewrite the master between the consistency check and its own upload.
+                    try {
+                        var master = file.resolveSibling(HlsPackage.MASTER);
+                        Files.writeString(master, Files.readString(master)
+                                + "#EXT-X-SESSION-DATA:DATA-ID=\"x\",URI=\"https://example.invalid/x\"\n");
+                    } catch (IOException exception) { throw new AssertionError(exception); }
+                }
+                super.store(key, file, contentType);
+            }
+        };
+        finalizer = new OutputFinalizer(transcoder, damaged, selections);
+
+        var result = finalizer.complete(lease, () -> false);
+
+        assertThat(result).isEqualTo(new OutputFinalizer.Result.Rejected(
+                MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED)));
+        assertThat(new String(damaged.stored.get(PREFIX + "/master.m3u8"))).contains("EXT-X-SESSION-DATA");
+        assertThat(selections.calls).containsExactly("FINALIZING");
+    }
+
+    @Test
     void aLeaseLostBeforeFinalizingStoresNothing() throws Exception {
         selections.finalizing = false;
 
@@ -228,7 +273,7 @@ class OutputFinalizerTest {
         catch (Exception exception) { throw new AssertionError(exception); }
     }
 
-    private final class Storage implements OutputStorage {
+    private class Storage implements OutputStorage {
         final Map<String, byte[]> stored = new LinkedHashMap<>();
         final List<String> types = new ArrayList<>();
         final List<String> reads = new ArrayList<>();

@@ -56,7 +56,10 @@ source duration, writes the variant playlist from the checked inventory and stop
 external kills and full disks. [Output finalization](docs/media-finalization-m23.md) stores the checked inventory
 under the claim's private prefix, reads every object back and commits READY, the duration, the aggregate version
 and its outbox event in one lease-fenced transaction; PROCESSING and FAILED transitions now record their events too.
-The worker is disabled by default; with the transcode stage configured, the finalizer is its job handler. Outbox
+[Finalization hardening](docs/media-finalization-hardening-m24.md) pins the bytes the seal vouched for (segment
+digests and exact playlists, so a tag-borne URI or a later rewrite cannot be stored as READY), adds database guards
+that keep a selected generation immutable and refuse READY without its event, and records the crash, overtaking and
+lost-acknowledgement matrix. The worker is disabled by default; with the transcode stage configured, the finalizer is its job handler. Outbox
 publication to Core and protected HLS delivery remain subsequent milestones.
 
 ```powershell

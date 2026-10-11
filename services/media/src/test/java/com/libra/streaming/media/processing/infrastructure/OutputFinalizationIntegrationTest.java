@@ -1,35 +1,22 @@
 package com.libra.streaming.media.processing.infrastructure;
 
 import com.libra.streaming.media.processing.application.BoundedMediaWorker;
-import com.libra.streaming.media.processing.application.JobStages;
 import com.libra.streaming.media.processing.application.MediaJobHandler;
 import com.libra.streaming.media.processing.application.OutputFinalizer;
 import com.libra.streaming.media.processing.application.OutputSelections;
 import com.libra.streaming.media.processing.application.OutputStorage;
 import com.libra.streaming.media.processing.application.SourceProber;
-import com.libra.streaming.media.processing.application.SourceTranscoder;
 import com.libra.streaming.media.processing.domain.JobLease;
 import com.libra.streaming.media.processing.domain.ProcessingFailure;
-import com.libra.streaming.media.upload.infrastructure.MediaPersistenceService;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
-import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.*;
 
 /**
@@ -37,90 +24,7 @@ import static org.assertj.core.api.Assertions.*;
  * output, real PostgreSQL holds the lease, stages, READY selection and outbox, and the real ffprobe and ffmpeg judge
  * and encode generated fixtures. Kafka is not involved: the READY event is a committed PENDING outbox row.
  */
-class OutputFinalizationIntegrationTest extends SourceStorageFixture {
-    private static final String HLS = "libra-hls";
-
-    @DynamicPropertySource
-    static void tools(DynamicPropertyRegistry registry) {
-        registry.add("libra.media.probe.executable", () -> FfprobeLocator.locate().toString());
-        registry.add("libra.media.probe.timeout", () -> "30s");
-        registry.add("libra.media.transcode.executable", () -> MediaFixtures.ffmpeg().toString());
-        registry.add("libra.media.transcode.timeout", () -> "5m");
-        registry.add("libra.media.storage.max-object-bytes", () -> "8388608");
-    }
-
-    @Autowired OutputFinalizer finalizer;
-    @Autowired MediaJobHandler handler;
-    @Autowired SourceTranscoder transcoder;
-    @Autowired SourceProber prober;
-    @Autowired OutputStorage outputs;
-    @Autowired OutputSelections selections;
-    @Autowired JobStages stages;
-    @Autowired ObjectMapper mapper;
-
-    private MediaPersistenceService.Ensure upload;
-
-    private JobLease stagedClaim(String name) throws Exception {
-        byte[] content = MediaFixtures.bytes(name);
-        upload = queued(content);
-        stage(upload, content);
-        return claim();
-    }
-
-    /** Waits out the retry delay a worker would have scheduled, then claims the next attempt. */
-    private JobLease nextClaim() throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (System.nanoTime() < deadline) {
-            var next = leases.claim(Duration.ofSeconds(30));
-            if (next.isPresent()) { return next.get(); }
-            Thread.sleep(20);
-        }
-        throw new AssertionError("No claimable attempt");
-    }
-
-    private static String prefix(MediaPersistenceService.Ensure upload, int attempt) {
-        return "hls/" + upload.uploadId() + "/attempt-" + attempt;
-    }
-
-    private List<String> hlsKeys(String prefix) {
-        return client.listObjectsV2(ListObjectsV2Request.builder().bucket(HLS).prefix(prefix).build()).contents()
-                .stream().map(object -> object.key()).sorted().toList();
-    }
-
-    private String hlsText(String key) {
-        return client.getObjectAsBytes(request -> request.bucket(HLS).key(key)).asString(StandardCharsets.UTF_8);
-    }
-
-    private List<String> events() {
-        return jdbc.queryForList("SELECT payload->>'state' FROM media_outbox_events WHERE asset_id = ? "
-                + "ORDER BY aggregate_version", String.class, upload.assetId());
-    }
-
-    private Map<String, Object> asset() {
-        return jdbc.queryForMap("SELECT * FROM media_assets WHERE asset_id = ?", upload.assetId());
-    }
-
-    private Map<String, Object> job() {
-        return jdbc.queryForMap("SELECT * FROM media_jobs WHERE upload_id = ?", upload.uploadId());
-    }
-
-    private List<Path> workspaceDirectories() throws IOException {
-        try (var tree = Files.walk(configured.scratchDirectory())) {
-            return tree.filter(path -> Files.isDirectory(path)
-                    && path.getFileName().toString().startsWith("hls-attempt-")).toList();
-        }
-    }
-
-    private void assertNotReady() {
-        var asset = asset();
-        assertThat(asset.get("state")).isEqualTo("PROCESSING");
-        assertThat(asset.get("output_prefix")).isNull();
-        assertThat(asset.get("master_manifest_key")).isNull();
-        assertThat(asset.get("duration_seconds")).isNull();
-        assertThat(asset.get("aggregate_version")).isEqualTo(1L);
-        assertThat(events()).containsExactly("PROCESSING");
-    }
-
+class OutputFinalizationIntegrationTest extends FinalizationFixture {
     @Test
     void verifiedOutputBecomesOneAuthoritativeReadySelectionWithItsDurableEvent() throws Exception {
         var lease = stagedClaim("valid-1080p-aac.mp4");

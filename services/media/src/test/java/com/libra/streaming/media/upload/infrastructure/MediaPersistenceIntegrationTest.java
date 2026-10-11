@@ -94,18 +94,24 @@ class MediaPersistenceIntegrationTest {
                 """, UUID.randomUUID(), command.uploadId())).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("UPDATE media_assets SET state = 'READY' WHERE asset_id = ? AND asset_version = 1",
                 command.assetId())).isInstanceOf(DataIntegrityViolationException.class);
-        jdbc.update("""
+        Runnable ready = () -> jdbc.update("""
                 UPDATE media_assets SET state = 'READY', selected_source_key = ?, output_prefix = ?,
                     master_manifest_key = ?, duration_seconds = 60, aggregate_version = 1
                 WHERE asset_id = ? AND asset_version = 1
                 """, "sources/" + command.assetId(), "hls/" + command.assetId(),
                 "hls/" + command.assetId() + "/master.m3u8", command.assetId());
+        // Since V5, READY commits only together with its event (checked at commit).
+        assertThatThrownBy(ready::run).isInstanceOf(DataIntegrityViolationException.class);
         UUID event = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
-                    correlation_id, payload, next_attempt_at, created_at)
-                VALUES (?, ?, 1, 1, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, event, command.assetId(), command.requestId(), "{\"state\":\"READY\"}");
+        template.executeWithoutResult(status -> {
+            ready.run();
+            jdbc.update("""
+                    INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
+                        correlation_id, payload, next_attempt_at, created_at)
+                    VALUES (?, ?, 1, 1, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, event, command.assetId(), command.requestId(), "{\"state\":\"READY\",\"durationSeconds\":60}");
+        });
+        assertThat(persistence.read(command.uploadId()).assetState()).isEqualTo("READY");
         assertThat(count("media_outbox_events")).isEqualTo(1);
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,

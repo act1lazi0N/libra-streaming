@@ -322,9 +322,9 @@ class HlsPackageTest {
         var master = directory.resolve("master.m3u8");
         var stated = Files.readString(master);
         Files.writeString(master, stated + "https://example.invalid/other.m3u8\n");
-        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("MASTER_REFERENCES");
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("MASTER_CHANGED");
         Files.writeString(master, stated.replace("rendition.m3u8", "other.m3u8"));
-        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("MASTER_REFERENCES");
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("MASTER_CHANGED");
         Files.writeString(master, stated);
 
         Files.write(directory.resolve("segment-00001.ts"), packets(SEGMENT_BYTES + 188));
@@ -340,16 +340,86 @@ class HlsPackageTest {
     }
 
     @Test
+    void aReferenceSmuggledIntoTheMasterThroughATagIsCaught() throws IOException {
+        var output = sealedThree();
+        var master = directory.resolve("master.m3u8");
+        var stated = Files.readString(master);
+        // Only "rendition.m3u8" is a URI line, yet each of these makes a player fetch something outside the inventory.
+        for (var tag : List.of(
+                "#EXT-X-SESSION-DATA:DATA-ID=\"x\",URI=\"https://example.invalid/x.json\"",
+                "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"a\",URI=\"../../other/rendition.m3u8\"",
+                "#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=1,URI=\"/hls/other/attempt-1/rendition.m3u8\"",
+                "#EXT-X-SESSION-KEY:METHOD=AES-128,URI=\"https://example.invalid/key\"")) {
+            Files.writeString(master, stated + tag + "\n");
+            assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).as(tag).hasMessage("MASTER_CHANGED");
+        }
+        Files.writeString(master, stated.replace("BANDWIDTH=", "BANDWIDTH=9"));
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("MASTER_CHANGED");
+        Files.writeString(master, stated);
+        assertThatCode(() -> HlsPackage.requireConsistent(output)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void aVariantThatOmitsAnEntryIsCaught() throws IOException {
+        var output = sealedThree();
+        var variant = directory.resolve("rendition.m3u8");
+        var original = Files.readString(variant);
+        Files.writeString(variant, original.replaceFirst("#EXTINF:2\\.500,\nsegment-00002\\.ts\n", ""));
+        assertThat(Files.readString(variant)).doesNotContain("segment-00002.ts");
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("VARIANT_CHANGED");
+    }
+
+    @Test
+    void theSealRecordsTheDigestOfEverySegmentAndBothPlaylists() throws IOException {
+        var output = sealedThree();
+        for (var segment : output.segments()) {
+            assertThat(segment.sha256()).isEqualTo(sha(Files.readAllBytes(directory.resolve(segment.name()))));
+        }
+        assertThat(output.masterPlaylist()).isEqualTo(Files.readString(directory.resolve("master.m3u8")));
+        assertThat(output.variantPlaylist()).isEqualTo(Files.readString(directory.resolve("rendition.m3u8")));
+    }
+
+    @Test
+    void aSegmentWithATornPacketInsideIsRejected() throws IOException {
+        write(playlist(segments(2, "4.000000").toArray(String[]::new)), 2, SEGMENT_BYTES);
+        // Whole packets by length and a good first packet, but a later packet lost its sync byte.
+        var torn = packets(SEGMENT_BYTES);
+        torn[188 * 300] = 0;
+        Files.write(directory.resolve("segment-00001.ts"), torn);
+        sealMalformed("SEGMENT_PACKETS", 8000);
+    }
+
+    private static String sha(byte[] bytes) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new AssertionError(exception);
+        }
+    }
+
+    @Test
     void anInventoryThatIsNotThisPipelinesShapeIsNeverConsistent() throws IOException {
         var output = sealedThree();
         var renamed = new HlsOutput(output.directory(), "index.m3u8", output.variantName(), output.segments(),
                 output.width(), output.height(), output.hasAudio(), output.durationMillis(), output.totalBytes(),
-                output.peakBitsPerSecond(), output.averageBitsPerSecond());
+                output.peakBitsPerSecond(), output.averageBitsPerSecond(), output.masterPlaylist());
         assertThatThrownBy(() -> HlsPackage.requireConsistent(renamed)).hasMessage("INVENTORY");
         var outside = new HlsOutput(output.directory(), output.masterName(), output.variantName(),
-                List.of(new HlsOutput.Segment("../segment-00000.ts", 4000, SEGMENT_BYTES)), output.width(),
+                List.of(new HlsOutput.Segment("../segment-00000.ts", 4000, SEGMENT_BYTES,
+                        output.segments().getFirst().sha256())), output.width(),
                 output.height(), output.hasAudio(), 4000, output.totalBytes(), output.peakBitsPerSecond(),
-                output.averageBitsPerSecond());
+                output.averageBitsPerSecond(), output.masterPlaylist());
         assertThatThrownBy(() -> HlsPackage.requireConsistent(outside)).isInstanceOf(HlsPackage.Malformed.class);
+        // An expected master that is not this service's shape is never a consistent inventory, whatever the disk says.
+        for (var master : List.of(output.masterPlaylist() + "other.m3u8\n",
+                output.masterPlaylist() + "#EXT-X-SESSION-DATA:DATA-ID=\"x\",URI=\"x.json\"\n",
+                output.masterPlaylist().replace("#EXTM3U\n", ""))) {
+            var forged = new HlsOutput(output.directory(), output.masterName(), output.variantName(),
+                    output.segments(), output.width(), output.height(), output.hasAudio(), output.durationMillis(),
+                    output.totalBytes(), output.peakBitsPerSecond(), output.averageBitsPerSecond(), master);
+            assertThatThrownBy(() -> HlsPackage.requireConsistent(forged)).as(master).hasMessage("INVENTORY");
+        }
+        assertThatThrownBy(() -> new HlsOutput.Segment("segment-00000.ts", 4000, SEGMENT_BYTES, "A".repeat(64)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }
