@@ -68,7 +68,9 @@ class JobSourceSelectionIntegrationTest {
                 lease.assetId())).isEqualTo("PROCESSING");
         // A source selection is neither readiness nor an editorial event.
         assertThat(aggregateVersion(lease)).isEqualTo(aggregate);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // The first claim is the only event: freezing, probing, selection and stages are not transitions.
+        assertThat(jdbc.queryForList("SELECT payload->>'state' FROM media_outbox_events WHERE asset_id = ?",
+                String.class, lease.assetId())).containsExactly("PROCESSING");
         assertThat(leases.renew(lease, Duration.ofSeconds(30))).isTrue();
     }
 

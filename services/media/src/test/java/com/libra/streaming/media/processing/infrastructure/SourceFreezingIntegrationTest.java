@@ -40,7 +40,9 @@ class SourceFreezingIntegrationTest extends SourceStorageFixture {
                 .isEqualTo("SOURCE_SELECTED");
         assertThat(jdbc.queryForObject("SELECT state FROM media_assets WHERE asset_id = ?", String.class,
                 upload.assetId())).isEqualTo("PROCESSING"); // frozen is not READY
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // The first claim is the only event: freezing, probing, selection and stages are not transitions.
+        assertThat(jdbc.queryForList("SELECT payload->>'state' FROM media_outbox_events WHERE asset_id = ?",
+                String.class, upload.assetId())).containsExactly("PROCESSING");
         assertThat(scratchFiles()).isEqualTo(before);
         assertThat(client.getObjectAsBytes(b -> b.bucket(BUCKET).key(stagingKey(upload))).asByteArray())
                 .isEqualTo(content); // freezing copies; staging is left for later reconciliation

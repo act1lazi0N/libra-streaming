@@ -99,6 +99,31 @@ class BoundedMediaWorkerTest {
         assertThatThrownBy(worker::start).isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void aSettledOutcomeRecordsNothingAndReleasesNothing() throws Exception {
+        var leases = mock(JobLeases.class);
+        var owner = lease();
+        when(leases.claim(any())).thenReturn(Optional.of(owner), Optional.empty());
+        when(leases.renew(any(), any())).thenReturn(true);
+        CountDownLatch handled = new CountDownLatch(1);
+        try (var worker = worker(leases, (job, stop) -> {
+            handled.countDown();
+            return MediaJobHandler.Outcome.settled();
+        })) {
+            worker.start();
+            assertThat(handled.await(3, TimeUnit.SECONDS)).isTrue();
+            verify(leases, timeout(1000).atLeast(2)).claim(any());
+        }
+        // READY was committed by the handler under its lease; a worker write could only be refused or wrong.
+        verify(leases, never()).retry(any(), any(), any());
+        verify(leases, never()).fail(any(), any());
+        verify(leases, never()).release(any());
+        assertThat(MediaJobHandler.Outcome.settled().isSettled()).isTrue();
+        assertThat(MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED).isSettled()).isFalse();
+        assertThatThrownBy(() -> new MediaJobHandler.Outcome(true, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MediaJobHandler.Outcome.reject(null)).isInstanceOf(NullPointerException.class);
+    }
+
     private static BoundedMediaWorker worker(JobLeases leases, MediaJobHandler handler) {
         return new BoundedMediaWorker(leases, handler, new BoundedMediaWorker.Settings(Duration.ofMillis(20),
                 Duration.ofSeconds(1), Duration.ofMillis(20), Duration.ofMillis(20), Duration.ofSeconds(1)), ignored -> {});

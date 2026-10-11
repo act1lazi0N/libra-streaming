@@ -83,6 +83,8 @@ public final class BoundedMediaWorker implements AutoCloseable {
                 // Finish any in-flight renewal before finalization. A late heartbeat cannot interrupt the next job.
                 active.set(false);
                 finalized = true;
+                // The handler committed READY (or lost the lease) itself; a second write could only be refused.
+                if (outcome.isSettled()) { return; }
                 if (outcome.permanent()) { leases.fail(lease, outcome.failure()); }
                 else { leases.retry(lease, outcome.failure(), settings.retryDelay()); }
             }

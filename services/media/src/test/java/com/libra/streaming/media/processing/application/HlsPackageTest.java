@@ -300,4 +300,56 @@ class HlsPackageTest {
         Files.write(directory.resolve("rendition.m3u8"), new byte[] {'#', 'E', (byte) 0xff, (byte) 0xfe, '\n'});
         sealMalformed("IO");
     }
+
+    private HlsOutput sealedThree() throws IOException {
+        write(playlist("#EXTINF:4.000000,", "segment-00000.ts", "#EXTINF:4.000000,", "segment-00001.ts",
+                "#EXTINF:2.500000,", "segment-00002.ts"), 3, SEGMENT_BYTES);
+        return seal(10_500);
+    }
+
+    @Test
+    void aSealedWorkspaceIsConsistentWithItsInventoryUntilSomethingChangesIt() throws IOException {
+        var output = sealedThree();
+        assertThatCode(() -> HlsPackage.requireConsistent(output)).doesNotThrowAnyException();
+
+        // Each change that could smuggle a reference or a different byte out of the workspace is caught.
+        var variant = directory.resolve("rendition.m3u8");
+        var original = Files.readString(variant);
+        Files.writeString(variant, original.replace("segment-00002.ts", "../segment-00002.ts"));
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("VARIANT_CHANGED");
+        Files.writeString(variant, original);
+
+        var master = directory.resolve("master.m3u8");
+        var stated = Files.readString(master);
+        Files.writeString(master, stated + "https://example.invalid/other.m3u8\n");
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("MASTER_REFERENCES");
+        Files.writeString(master, stated.replace("rendition.m3u8", "other.m3u8"));
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("MASTER_REFERENCES");
+        Files.writeString(master, stated);
+
+        Files.write(directory.resolve("segment-00001.ts"), packets(SEGMENT_BYTES + 188));
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("SEGMENT_CHANGED");
+        Files.write(directory.resolve("segment-00001.ts"), packets(SEGMENT_BYTES));
+
+        Files.writeString(directory.resolve("extra.ts"), "x");
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("UNEXPECTED_FILE");
+        Files.delete(directory.resolve("extra.ts"));
+
+        Files.delete(directory.resolve("segment-00002.ts"));
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(output)).hasMessage("SEGMENT_CHANGED");
+    }
+
+    @Test
+    void anInventoryThatIsNotThisPipelinesShapeIsNeverConsistent() throws IOException {
+        var output = sealedThree();
+        var renamed = new HlsOutput(output.directory(), "index.m3u8", output.variantName(), output.segments(),
+                output.width(), output.height(), output.hasAudio(), output.durationMillis(), output.totalBytes(),
+                output.peakBitsPerSecond(), output.averageBitsPerSecond());
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(renamed)).hasMessage("INVENTORY");
+        var outside = new HlsOutput(output.directory(), output.masterName(), output.variantName(),
+                List.of(new HlsOutput.Segment("../segment-00000.ts", 4000, SEGMENT_BYTES)), output.width(),
+                output.height(), output.hasAudio(), 4000, output.totalBytes(), output.peakBitsPerSecond(),
+                output.averageBitsPerSecond());
+        assertThatThrownBy(() -> HlsPackage.requireConsistent(outside)).isInstanceOf(HlsPackage.Malformed.class);
+    }
 }

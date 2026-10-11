@@ -252,7 +252,9 @@ class JobRecoveryIntegrationTest {
         assertThat(asset.get("selected_source_key")).isNull();
         assertThat(asset.get("output_prefix")).isNull();
         assertThat(asset.get("master_manifest_key")).isNull();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // The first claim is the only event: freezing, probing, selection and stages are not transitions.
+        assertThat(jdbc.queryForList("SELECT payload->>'state' FROM media_outbox_events WHERE asset_id = ?",
+                String.class, successor.assetId())).containsExactly("PROCESSING");
     }
 
     private Connection lock(JobLease lease) throws Exception {

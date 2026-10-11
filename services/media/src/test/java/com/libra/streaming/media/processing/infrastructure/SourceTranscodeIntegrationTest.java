@@ -70,8 +70,10 @@ class SourceTranscodeIntegrationTest extends SourceStorageFixture {
         }
     }
 
+    /** HLS objects of this test's upload; the bucket is shared with suites that do store output (M23). */
     private int hlsObjects() {
-        return client.listObjectsV2(request -> request.bucket("libra-hls")).contents().size();
+        return client.listObjectsV2(request -> request.bucket("libra-hls").prefix("hls/" + upload.uploadId() + "/"))
+                .contents().size();
     }
 
     @Test
@@ -103,7 +105,9 @@ class SourceTranscodeIntegrationTest extends SourceStorageFixture {
                     upload.assetId())).isNull();
             assertThat(jdbc.queryForObject("SELECT master_manifest_key FROM media_assets WHERE asset_id = ?",
                     String.class, upload.assetId())).isNull();
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+            // The first claim is the only event: freezing, probing, selection and stages are not transitions.
+            assertThat(jdbc.queryForList("SELECT payload->>'state' FROM media_outbox_events WHERE asset_id = ?",
+                    String.class, upload.assetId())).containsExactly("PROCESSING");
             assertThat(hlsObjects()).isZero();
         }
         assertThat(workspaceDirectories()).isEmpty();
@@ -130,7 +134,12 @@ class SourceTranscodeIntegrationTest extends SourceStorageFixture {
             assertThat(stageOf(lease)).as(rejected.fixture()).isIn("CLAIMED", "SOURCE_SELECTED");
             assertThat(leases.fail(lease, outcome.failure())).isTrue();
         }
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // Each rejected source emitted its first claim and its terminal failure; none is READY.
+        assertThat(jdbc.queryForList("""
+                SELECT string_agg(payload->>'state', ',' ORDER BY aggregate_version)
+                FROM media_outbox_events GROUP BY asset_id""", String.class))
+                .hasSize(jdbc.queryForObject("SELECT count(*) FROM media_assets", Integer.class))
+                .containsOnly("PROCESSING,FAILED");
         assertThat(hlsObjects()).isZero();
     }
 
@@ -242,7 +251,9 @@ class SourceTranscodeIntegrationTest extends SourceStorageFixture {
         assertThat(jdbc.queryForObject("SELECT failure_code FROM media_jobs WHERE id = ?", String.class,
                 successor.jobId())).isNull();
         assertThat(hlsObjects()).isZero();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // The first claim is the only event: freezing, probing, selection and stages are not transitions.
+        assertThat(jdbc.queryForList("SELECT payload->>'state' FROM media_outbox_events WHERE asset_id = ?",
+                String.class, upload.assetId())).containsExactly("PROCESSING");
         // The successor still encodes from the frozen copy the first attempt committed.
         try (var done = (SourceTranscoder.Result.Transcoded) transcoder.transcode(successor, () -> false)) {
             assertThat(done.output().segments()).hasSize(5);

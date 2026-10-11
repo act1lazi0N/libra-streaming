@@ -47,11 +47,20 @@ public class JdbcJobLeases implements JobLeases {
                 UPDATE media_jobs SET stage = 'CLAIMED', attempt_count = attempt_count + 1,
                     lease_token = ?, lease_until = ?, failure_code = NULL, updated_at = ? WHERE id = ?
                 """, token, Timestamp.from(expiry), Timestamp.from(now), current.jobId());
-        int changed = jdbc.update("""
+        // Only the first claim is a visible transition; a retry claim of a PROCESSING asset emits nothing.
+        int started = jdbc.update("""
                 UPDATE media_assets SET state = 'PROCESSING', updated_at = ?
-                WHERE asset_id = ? AND asset_version = ? AND state IN ('QUEUED', 'PROCESSING')
+                WHERE asset_id = ? AND asset_version = ? AND state = 'QUEUED'
                 """, Timestamp.from(now), current.assetId(), current.assetVersion());
-        if (changed != 1) { throw new IllegalStateException("Invalid job asset state"); }
+        if (started == 1) {
+            MediaAssetEvents.append(jdbc, current.assetId(), current.assetVersion(), MediaAssetEvents.State.PROCESSING,
+                    null, now);
+        } else if (jdbc.update("""
+                UPDATE media_assets SET updated_at = ?
+                WHERE asset_id = ? AND asset_version = ? AND state = 'PROCESSING'
+                """, Timestamp.from(now), current.assetId(), current.assetVersion()) != 1) {
+            throw new IllegalStateException("Invalid job asset state");
+        }
         return Optional.of(new JobLease(current.jobId(), current.uploadId(), current.assetId(), current.assetVersion(),
                 current.attempt() + 1, token, expiry));
     }
@@ -121,6 +130,8 @@ public class JdbcJobLeases implements JobLeases {
                 WHERE asset_id = ? AND asset_version = ? AND state IN ('QUEUED', 'PROCESSING')
                 """, Timestamp.from(now), current.assetId(), current.assetVersion());
         if (changed != 1) { throw new IllegalStateException("Invalid job asset state"); }
+        MediaAssetEvents.append(jdbc, current.assetId(), current.assetVersion(), MediaAssetEvents.State.FAILED, null,
+                now);
     }
 
     private Instant now() { return jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant(); }

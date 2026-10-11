@@ -80,10 +80,15 @@ class WorkerProcessRecoveryIntegrationTest {
             assertThat(leases.claim(Duration.ofSeconds(10))).isEmpty();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM media_jobs", Integer.class)).isEqualTo(1);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM media_assets WHERE selected_source_key IS NOT NULL OR output_prefix IS NOT NULL OR state = 'READY'", Integer.class)).isZero();
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+            // Three claims, one visible PROCESSING; exhaustion is the one FAILED event; never READY.
+            assertThat(jdbc.queryForList("""
+                    SELECT string_agg(payload->>'state', ',' ORDER BY aggregate_version)
+                    FROM media_outbox_events GROUP BY asset_id""", String.class))
+                    .hasSize(jdbc.queryForObject("SELECT count(*) FROM media_assets", Integer.class))
+                    .containsOnly("PROCESSING,FAILED");
             assertThat(Files.readString(evidence.resolve("failures.log"))).doesNotContain("M16_CLAIM " + admitted.jobId() + " 4");
             Files.writeString(evidence.resolve("result.txt"),
-                    "PASS: packaged worker killed twice; same PostgreSQL job recovered; attempts 1,2,3; stale writes denied; FAILED/RETRY_EXHAUSTED; no source/output/READY/outbox.\n");
+                    "PASS: packaged worker killed twice; same PostgreSQL job recovered; attempts 1,2,3; stale writes denied; FAILED/RETRY_EXHAUSTED; no source/output/READY; outbox only PROCESSING then FAILED.\n");
         } finally {
             stop(first);
             stop(replacement);

@@ -98,6 +98,40 @@ public final class HlsPackage {
     }
 
     /**
+     * Re-reads a sealed workspace and proves it still holds exactly the inventory {@link #seal} returned: the variant
+     * playlist is the one written for these segments, the master's only reference is that variant, every segment has
+     * its recorded size and nothing else is present. Run just before the files leave the workspace, so no stored
+     * playlist can name anything outside the inventory.
+     */
+    public static void requireConsistent(HlsOutput output) {
+        if (!MASTER.equals(output.masterName()) || !VARIANT.equals(output.variantName())
+                || output.segments().isEmpty()) {
+            throw new Malformed("INVENTORY");
+        }
+        var directory = output.directory();
+        try {
+            if (!read(directory.resolve(VARIANT)).equals(variant(output.segments()))) {
+                throw new Malformed("VARIANT_CHANGED");
+            }
+            var master = read(directory.resolve(MASTER));
+            var references = master.lines().filter(line -> !line.isEmpty() && !line.startsWith("#")).toList();
+            if (!master.startsWith("#EXTM3U\n") || !references.equals(List.of(VARIANT))) {
+                throw new Malformed("MASTER_REFERENCES");
+            }
+            for (var segment : output.segments()) {
+                var file = directory.resolve(segment.name());
+                if (!SEGMENT.matcher(segment.name()).matches() || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                        || Files.size(file) != segment.bytes()) {
+                    throw new Malformed("SEGMENT_CHANGED");
+                }
+            }
+            requireNoStrangers(directory, output.segments());
+        } catch (IOException exception) {
+            throw new Malformed("IO");
+        }
+    }
+
+    /**
      * The variant playlist as this service states it: the checked segments in order with their durations to the
      * millisecond, and a target duration of at least one second. ffmpeg declares a target duration of 0 for a clip
      * shorter than half a second, which the specification tolerates and players need not.

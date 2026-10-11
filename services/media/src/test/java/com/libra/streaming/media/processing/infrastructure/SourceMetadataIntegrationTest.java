@@ -70,7 +70,9 @@ class SourceMetadataIntegrationTest {
                 String.class, lease.assetId())).isEqualTo(key(lease));
         // Probing is not readiness and not an editorial event.
         assertThat(aggregateVersion(lease)).isEqualTo(aggregate);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // The first claim is the only event: freezing, probing, selection and stages are not transitions.
+        assertThat(jdbc.queryForList("SELECT payload->>'state' FROM media_outbox_events WHERE asset_id = ?",
+                String.class, lease.assetId())).containsExactly("PROCESSING");
         assertThat(jdbc.queryForObject("SELECT stage FROM media_jobs WHERE id = ?", String.class, lease.jobId()))
                 .isEqualTo("SOURCE_SELECTED");
     }

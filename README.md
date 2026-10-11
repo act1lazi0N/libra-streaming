@@ -53,8 +53,11 @@ source into one decodable H.264/AAC HLS rendition inside a local attempt workspa
 playlist; it uploads nothing and makes nothing ready. [Encoding hardening](docs/media-encoding-hardening-m22.md)
 makes decode errors fatal, delivers variable-rate sources at their average rate, checks the rendition against the
 source duration, writes the variant playlist from the checked inventory and stops blaming the input for signals,
-external kills and full disks. The worker is disabled by
-default and requires a real handler before enabling; output storage, READY and protected HLS delivery remain subsequent milestones.
+external kills and full disks. [Output finalization](docs/media-finalization-m23.md) stores the checked inventory
+under the claim's private prefix, reads every object back and commits READY, the duration, the aggregate version
+and its outbox event in one lease-fenced transaction; PROCESSING and FAILED transitions now record their events too.
+The worker is disabled by default; with the transcode stage configured, the finalizer is its job handler. Outbox
+publication to Core and protected HLS delivery remain subsequent milestones.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

@@ -11,8 +11,8 @@ import java.util.function.BooleanSupplier;
  * Probes the frozen source, then encodes exactly those proven bytes into one HLS rendition inside an
  * attempt-specific local workspace. The mutable staging object is never consulted: the input is the committed
  * frozen copy, re-measured before the encoder sees it. The stage stops with the output on local scratch. It stores
- * nothing, selects nothing, writes no event and never makes the asset ready or playable; later stages upload and
- * verify what the {@link Result.Transcoded} inventory describes.
+ * nothing, selects nothing, writes no event and never makes the asset ready or playable; {@link OutputFinalizer}
+ * uploads and verifies what the {@link Result.Transcoded} inventory describes.
  */
 public final class SourceTranscoder {
     private final SourceProber prober;
@@ -58,7 +58,7 @@ public final class SourceTranscoder {
             if (cancelled.getAsBoolean()) { throw new InterruptedException(); }
             // An attempt that lost its lease while encoding must not hand its output to anyone.
             if (sources.target(lease).isEmpty()) { return new Result.LeaseLost(); }
-            var done = new Result.Transcoded(output, metadata, workspace);
+            var done = new Result.Transcoded(output, metadata, target.selectedKey(), workspace);
             workspace = null;
             return done;
         } catch (SourceStorage.Unavailable | MediaTranscoder.Unavailable | TranscodeWorkspaces.Unavailable unavailable) {
@@ -84,10 +84,11 @@ public final class SourceTranscoder {
 
     public sealed interface Result {
         /**
-         * A verified local HLS output. The caller owns the workspace and must close this result to delete it, whether
-         * or not it went on to store anything.
+         * A verified local HLS output encoded from the frozen source {@code sourceKey}. The caller owns the workspace
+         * and must close this result to delete it, whether or not it went on to store anything.
          */
-        record Transcoded(HlsOutput output, SourceMetadata source, TranscodeWorkspaces.Workspace workspace)
+        record Transcoded(HlsOutput output, SourceMetadata source, String sourceKey,
+                TranscodeWorkspaces.Workspace workspace)
                 implements Result, AutoCloseable {
             @Override
             public void close() { workspace.close(); }

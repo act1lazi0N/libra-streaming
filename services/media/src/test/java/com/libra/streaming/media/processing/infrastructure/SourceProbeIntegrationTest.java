@@ -74,7 +74,9 @@ class SourceProbeIntegrationTest extends SourceStorageFixture {
                 upload.value.assetId())).isEqualTo("PROCESSING");
         assertThat(jdbc.queryForObject("SELECT stage FROM media_jobs WHERE id = ?", String.class, lease.jobId()))
                 .isEqualTo("SOURCE_SELECTED");
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // The first claim is the only event: freezing, probing, selection and stages are not transitions.
+        assertThat(jdbc.queryForList("SELECT payload->>'state' FROM media_outbox_events WHERE asset_id = ?",
+                String.class, upload.value.assetId())).containsExactly("PROCESSING");
         assertThat(scratchFiles()).isEqualTo(before);
     }
 
@@ -153,7 +155,12 @@ class SourceProbeIntegrationTest extends SourceStorageFixture {
             assertThat(leases.fail(lease, outcome.failure())).isTrue();
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM media_source_metadata", Integer.class)).isZero();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_outbox_events", Integer.class)).isZero();
+        // Each rejected source emitted its first claim and its terminal failure; none is READY.
+        assertThat(jdbc.queryForList("""
+                SELECT string_agg(payload->>'state', ',' ORDER BY aggregate_version)
+                FROM media_outbox_events GROUP BY asset_id""", String.class))
+                .hasSize(jdbc.queryForObject("SELECT count(*) FROM media_assets", Integer.class))
+                .containsOnly("PROCESSING,FAILED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM media_assets WHERE state = 'READY'", Integer.class))
                 .isZero();
     }
