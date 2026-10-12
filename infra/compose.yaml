@@ -158,6 +158,7 @@ services:
       MEDIA_STORAGE_PROBE_ON_STARTUP: false
       MEDIA_FFPROBE_PATH: /usr/bin/ffprobe
       MEDIA_FFMPEG_PATH: /usr/bin/ffmpeg
+      MEDIA_OUTBOX_ENABLED: ${MEDIA_OUTBOX_ENABLED:-true}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     read_only: true
     tmpfs:

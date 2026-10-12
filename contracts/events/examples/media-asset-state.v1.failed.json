@@ -1,0 +1,16 @@
+{
+  "eventId": "{{eventId}}",
+  "eventType": "MediaAssetStateChanged",
+  "schemaVersion": 1,
+  "aggregateId": "{{assetId}}",
+  "aggregateVersion": 2,
+  "occurredAt": "{{occurredAt}}",
+  "correlationId": "{{correlationId}}",
+  "payload": {
+    "contentId": "{{contentId}}",
+    "bindingId": "{{bindingId}}",
+    "assetId": "{{assetId}}",
+    "assetVersion": 1,
+    "state": "FAILED"
+  }
+}

@@ -42,6 +42,13 @@ libra:
       renew-interval: ${MEDIA_WORKER_RENEW_INTERVAL:5s}
       retry-delay: ${MEDIA_WORKER_RETRY_DELAY:10s}
       shutdown-timeout: ${MEDIA_WORKER_SHUTDOWN_TIMEOUT:10s}
+    outbox:
+      enabled: ${MEDIA_OUTBOX_ENABLED:false}
+      poll-interval: ${MEDIA_OUTBOX_POLL_INTERVAL:1s}
+      lease-duration: ${MEDIA_OUTBOX_LEASE_DURATION:30s}
+      send-timeout: ${MEDIA_OUTBOX_SEND_TIMEOUT:10s}
+      max-retry-delay: ${MEDIA_OUTBOX_MAX_RETRY_DELAY:5m}
+      shutdown-timeout: ${MEDIA_OUTBOX_SHUTDOWN_TIMEOUT:10s}
     probe:
       executable: ${MEDIA_FFPROBE_PATH:}
       timeout: ${MEDIA_FFPROBE_TIMEOUT:20s}

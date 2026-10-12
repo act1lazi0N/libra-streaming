@@ -312,10 +312,11 @@ class FinalizationConsistencyIntegrationTest extends FinalizationFixture {
                     duration_seconds = 5, aggregate_version = aggregate_version + 1
                 WHERE asset_id = ?
                 """, prefix, prefix + "/master.m3u8", upload.assetId());
-        // version 2 is the READY version; each event below is wrong in exactly one way.
+        // version 2 is the READY version; each event below is wrong in exactly one way. (Since V6 an event can no
+        // longer be deleted, so the wrong version is one the asset has not reached rather than its PROCESSING one.)
         var events = List.of(
                 "",
-                "{\"state\":\"READY\",\"durationSeconds\":5}@1",
+                "{\"state\":\"READY\",\"durationSeconds\":5}@3",
                 "{\"state\":\"PROCESSING\"}@2",
                 "{\"state\":\"READY\",\"durationSeconds\":6}@2",
                 "{\"state\":\"READY\"}@2");
@@ -324,8 +325,6 @@ class FinalizationConsistencyIntegrationTest extends FinalizationFixture {
                 ready.run();
                 if (!event.isEmpty()) {
                     var parts = event.split("@");
-                    jdbc.update("DELETE FROM media_outbox_events WHERE asset_id = ? AND aggregate_version = ?",
-                            upload.assetId(), Long.parseLong(parts[1]));
                     jdbc.update("""
                             INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
                                 correlation_id, payload, next_attempt_at, created_at)

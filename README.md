@@ -59,8 +59,11 @@ and its outbox event in one lease-fenced transaction; PROCESSING and FAILED tran
 [Finalization hardening](docs/media-finalization-hardening-m24.md) pins the bytes the seal vouched for (segment
 digests and exact playlists, so a tag-borne URI or a later rewrite cannot be stored as READY), adds database guards
 that keep a selected generation immutable and refuse READY without its event, and records the crash, overtaking and
-lost-acknowledgement matrix. The worker is disabled by default; with the transcode stage configured, the finalizer is its job handler. Outbox
-publication to Core and protected HLS delivery remain subsequent milestones.
+lost-acknowledgement matrix. The worker is disabled by default; with the transcode stage configured, the finalizer is its job handler.
+[Outbox publication](docs/media-outbox-publication-m25.md) delivers those events to `media.assets.v1` at least once,
+in version order per asset, behind database guards that keep events immutable; Core projects the published records
+(shared wire examples in `contracts/events/examples/`). The relay is off by default and on in Compose. Delivery
+operations and replay, and protected HLS delivery, remain subsequent milestones.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d
