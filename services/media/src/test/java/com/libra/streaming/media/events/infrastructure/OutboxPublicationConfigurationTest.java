@@ -15,7 +15,9 @@ class OutboxPublicationConfigurationTest {
             .withInitializer(context -> context.getBeanFactory().setConversionService(
                     org.springframework.boot.convert.ApplicationConversionService.getSharedInstance()))
             .withUserConfiguration(OutboxPublicationConfiguration.class)
-            .withBean(OutboxEvents.class, () -> events);
+            .withBean(OutboxEvents.class, () -> events)
+            .withBean(io.micrometer.core.instrument.MeterRegistry.class,
+                    io.micrometer.core.instrument.simple.SimpleMeterRegistry::new);
     // Nothing listens here; the relay never gets an event to send.
     private final ApplicationContextRunner runner = bare.withPropertyValues("spring.kafka.bootstrap-servers=127.0.0.1:1");
 

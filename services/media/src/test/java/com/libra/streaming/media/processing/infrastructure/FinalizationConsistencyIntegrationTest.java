@@ -314,26 +314,30 @@ class FinalizationConsistencyIntegrationTest extends FinalizationFixture {
                 """, prefix, prefix + "/master.m3u8", upload.assetId());
         // version 2 is the READY version; each event below is wrong in exactly one way. (Since V6 an event can no
         // longer be deleted, so the wrong version is one the asset has not reached rather than its PROCESSING one.)
-        var events = List.of(
-                "",
-                "{\"state\":\"READY\",\"durationSeconds\":5}@3",
-                "{\"state\":\"PROCESSING\"}@2",
-                "{\"state\":\"READY\",\"durationSeconds\":6}@2",
-                "{\"state\":\"READY\"}@2");
-        for (var event : events) {
+        // Since V7 a contradicting event is refused when it is inserted; only a missing event reaches the V5 check.
+        var events = Map.of(
+                "", "media READY requires its event",
+                "\"state\":\"READY\",\"durationSeconds\":5@3", "media outbox event contradicts its asset",
+                "\"state\":\"PROCESSING\"@2", "media outbox event contradicts its asset",
+                "\"state\":\"READY\",\"durationSeconds\":6@2", "media outbox event contradicts its asset",
+                "\"state\":\"READY\"@2", "ck_media_outbox_payload_contract");
+        for (var event : events.entrySet()) {
             assertThatThrownBy(() -> template.executeWithoutResult(status -> {
                 ready.run();
-                if (!event.isEmpty()) {
-                    var parts = event.split("@");
+                if (!event.getKey().isEmpty()) {
+                    var parts = event.getKey().split("@");
+                    var payload = "{\"contentId\":\"" + upload.contentId() + "\",\"bindingId\":\""
+                            + upload.bindingId() + "\",\"assetId\":\"" + upload.assetId()
+                            + "\",\"assetVersion\":1," + parts[0] + "}";
                     jdbc.update("""
                             INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
                                 correlation_id, payload, next_attempt_at, created_at)
                             VALUES (?, ?, 1, ?, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             """, UUID.randomUUID(), upload.assetId(), Long.parseLong(parts[1]), upload.requestId(),
-                            parts[0]);
+                            payload);
                 }
-            })).as(event).isInstanceOf(DataIntegrityViolationException.class)
-                    .hasStackTraceContaining("media READY requires its event");
+            })).as(event.getKey()).isInstanceOf(DataIntegrityViolationException.class)
+                    .hasStackTraceContaining(event.getValue());
             assertNotReady();
             assertThat(job().get("stage")).isEqualTo("FINALIZING");
         }

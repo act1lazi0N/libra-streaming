@@ -1,6 +1,7 @@
 package com.libra.streaming.media.events.infrastructure;
 
 import com.libra.streaming.media.events.application.OutboxEvents;
+import com.libra.streaming.media.events.domain.DeliveryFailure;
 import com.libra.streaming.media.events.domain.OutboxDelivery;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -52,19 +53,20 @@ public class JdbcOutboxEvents implements OutboxEvents {
         // unless another relay leased the event since (its token replaced ours).
         return jdbc.update("""
                 UPDATE media_outbox_events SET delivery_state = 'SENT', sent_at = clock_timestamp(),
-                    lease_token = NULL, lease_until = NULL
+                    lease_token = NULL, lease_until = NULL, last_error_code = NULL
                 WHERE event_id = ? AND lease_token = ? AND delivery_state = 'LEASED'
                 """, delivery.eventId(), delivery.leaseToken()) == 1;
     }
 
     @Override
-    public boolean retry(OutboxDelivery delivery, Duration maxDelay) {
+    public boolean retry(OutboxDelivery delivery, DeliveryFailure failure, Duration maxDelay) {
         return jdbc.update("""
                 UPDATE media_outbox_events SET delivery_state = 'PENDING', lease_token = NULL, lease_until = NULL,
                     next_attempt_at = clock_timestamp() + LEAST(?, 1000 * power(2, LEAST(attempt_count - 1, 30)))
-                        * INTERVAL '1 millisecond'
+                        * INTERVAL '1 millisecond',
+                    last_error_code = ?
                 WHERE event_id = ? AND lease_token = ? AND delivery_state = 'LEASED'
-                """, maxDelay.toMillis(), delivery.eventId(), delivery.leaseToken()) == 1;
+                """, maxDelay.toMillis(), failure.name(), delivery.eventId(), delivery.leaseToken()) == 1;
     }
 
     @Override

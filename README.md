@@ -62,8 +62,11 @@ that keep a selected generation immutable and refuse READY without its event, an
 lost-acknowledgement matrix. The worker is disabled by default; with the transcode stage configured, the finalizer is its job handler.
 [Outbox publication](docs/media-outbox-publication-m25.md) delivers those events to `media.assets.v1` at least once,
 in version order per asset, behind database guards that keep events immutable; Core projects the published records
-(shared wire examples in `contracts/events/examples/`). The relay is off by default and on in Compose. Delivery
-operations and replay, and protected HLS delivery, remain subsequent milestones.
+(shared wire examples in `contracts/events/examples/`). The relay is off by default and on in Compose.
+[Delivery hardening](docs/media-delivery-hardening-m26.md) replaces a producer left in a fatal state, lets the
+database accept only the exact contract event of each transition, records why a delivery failed with backlog and
+age gauges, and shows a killed packaged relay and a hung broker losing nothing. Protected HLS delivery remains a
+subsequent milestone.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

@@ -2,6 +2,7 @@ package com.libra.streaming.media.events.infrastructure;
 
 import com.libra.streaming.media.events.application.OutboxEvents;
 import com.libra.streaming.media.events.application.OutboxRelay;
+import com.libra.streaming.media.events.domain.DeliveryFailure;
 import com.libra.streaming.media.events.domain.OutboxDelivery;
 import com.libra.streaming.media.processing.application.JobLeases;
 import com.libra.streaming.media.processing.application.OutputSelections;
@@ -34,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -53,6 +55,8 @@ import static org.assertj.core.api.Assertions.*;
  */
 @Testcontainers
 @SpringBootTest(properties = "libra.media.storage.enabled=false")
+// Its containers stop with the class; a cached context would keep pools to them open in the shared failsafe JVM.
+@DirtiesContext
 class OutboxPublicationIntegrationTest {
     private static final String TOPIC = "media.assets.v1";
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
@@ -116,7 +120,7 @@ class OutboxPublicationIntegrationTest {
                 """)).hasSize(4).allSatisfy(row -> assertThat(row).containsEntry("delivery_state", "SENT")
                 .containsEntry("attempt_count", 1).containsEntry("lease_token", null)
                 .containsEntry("lease_until", null).containsEntry("sent", true));
-        assertThat(reports).isEmpty();
+        assertThat(reports).containsOnly(OutboxRelay.ACKNOWLEDGED);
     }
 
     @Test
@@ -129,7 +133,8 @@ class OutboxPublicationIntegrationTest {
             // Observed while the relay runs: closing it during a later attempt would return the event at once.
             await(() -> {
                 var row = jdbc.queryForMap("""
-                        SELECT delivery_state, attempt_count, lease_token, next_attempt_at > clock_timestamp() AS waiting
+                        SELECT delivery_state, attempt_count, lease_token, last_error_code,
+                            next_attempt_at > clock_timestamp() AS waiting
                         FROM media_outbox_events WHERE asset_id = ?
                         """, lease.assetId());
                 if (!reports.contains("OUTBOX_BROKER_UNAVAILABLE") || !Boolean.TRUE.equals(row.get("waiting"))) {
@@ -141,7 +146,8 @@ class OutboxPublicationIntegrationTest {
                 return true;
             });
         }
-        assertThat(waiting.get()).containsEntry("delivery_state", "PENDING").containsEntry("lease_token", null);
+        assertThat(waiting.get()).containsEntry("delivery_state", "PENDING").containsEntry("lease_token", null)
+                .containsEntry("last_error_code", "BROKER_UNAVAILABLE");
         assertThat((Integer) waiting.get().get("attempt_count")).isPositive();
         assertThat(reports).containsOnly("OUTBOX_BROKER_UNAVAILABLE");
 
@@ -152,9 +158,11 @@ class OutboxPublicationIntegrationTest {
             relay.start();
             await(() -> unsent() == 0);
         }
+        assertThat(jdbc.queryForObject("SELECT last_error_code FROM media_outbox_events WHERE asset_id = ?",
+                String.class, lease.assetId())).isNull();
         assertThat(consume(Set.of(key(lease)), 1)).singleElement()
                 .satisfies(record -> assertThat(json(record).get("aggregateVersion").asLong()).isEqualTo(1));
-        assertThat(reports).isEmpty();
+        assertThat(reports).containsOnly(OutboxRelay.ACKNOWLEDGED);
     }
 
     @Test
@@ -175,7 +183,7 @@ class OutboxPublicationIntegrationTest {
         assertThat(takeover.attempt()).isEqualTo(2);
         assertThat(takeover.value()).isEqualTo(first.value());
         assertThat(events.sent(first)).isFalse();
-        assertThat(events.retry(first, Duration.ofSeconds(1))).isFalse();
+        assertThat(events.retry(first, DeliveryFailure.BROKER_UNAVAILABLE, Duration.ofSeconds(1))).isFalse();
         assertThat(events.release(first)).isFalse();
         assertThat(state(first)).isEqualTo("LEASED");
 
@@ -236,7 +244,7 @@ class OutboxPublicationIntegrationTest {
         for (var lease : assets) { assertThat(versions(records, lease)).containsExactly(1L, 2L); }
         assertThat(jdbc.queryForObject("SELECT max(attempt_count) FROM media_outbox_events", Integer.class))
                 .isEqualTo(1);
-        assertThat(reports).isEmpty();
+        assertThat(reports).containsOnly(OutboxRelay.ACKNOWLEDGED);
     }
 
     @Test

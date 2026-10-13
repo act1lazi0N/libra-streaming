@@ -1,5 +1,6 @@
 package com.libra.streaming.media.events.application;
 
+import com.libra.streaming.media.events.domain.DeliveryFailure;
 import com.libra.streaming.media.events.domain.OutboxDelivery;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -30,7 +31,7 @@ class OutboxRelayTest {
 
         assertThat(published).containsExactly(first, second);
         assertThat(events.log).containsExactly("sent " + first.eventId(), "sent " + second.eventId());
-        assertThat(reports).isEmpty();
+        assertThat(reports).containsExactly(OutboxRelay.ACKNOWLEDGED, OutboxRelay.ACKNOWLEDGED);
     }
 
     @Test
@@ -39,9 +40,17 @@ class OutboxRelayTest {
         events.add();
         relay((delivery, timeout) -> { throw new IllegalStateException("down"); }).drain();
 
-        // Only one claim: the next event would meet the same broker.
-        assertThat(events.log).containsExactly("retry " + first.eventId() + " PT5M");
+        // Only one claim: the next event would meet the same broker. An unclassified error counts as unavailable.
+        assertThat(events.log).containsExactly("retry " + first.eventId() + " BROKER_UNAVAILABLE PT5M");
         assertThat(reports).containsExactly("OUTBOX_BROKER_UNAVAILABLE");
+    }
+
+    @Test
+    void aRejectionIsRecordedAsSuch() {
+        var first = events.add();
+        relay((delivery, timeout) -> { throw new EventPublisher.Failure(DeliveryFailure.BROKER_REJECTED); }).drain();
+        assertThat(events.log).containsExactly("retry " + first.eventId() + " BROKER_REJECTED PT5M");
+        assertThat(reports).containsExactly("OUTBOX_BROKER_REJECTED");
     }
 
     @Test
@@ -65,7 +74,7 @@ class OutboxRelayTest {
         relay((delivery, timeout) -> {}).drain();
 
         assertThat(events.log).containsExactly("fenced " + first.eventId(), "sent " + second.eventId());
-        assertThat(reports).containsExactly("OUTBOX_DELIVERY_FENCED");
+        assertThat(reports).containsExactly("OUTBOX_DELIVERY_FENCED", OutboxRelay.ACKNOWLEDGED);
     }
 
     @Test
@@ -166,8 +175,8 @@ class OutboxRelayTest {
             return true;
         }
 
-        @Override public boolean retry(OutboxDelivery delivery, Duration maxDelay) {
-            log.add("retry " + delivery.eventId() + " " + maxDelay);
+        @Override public boolean retry(OutboxDelivery delivery, DeliveryFailure failure, Duration maxDelay) {
+            log.add("retry " + delivery.eventId() + " " + failure + " " + maxDelay);
             return true;
         }
 

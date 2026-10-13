@@ -1,5 +1,6 @@
 package com.libra.streaming.media.events.application;
 
+import com.libra.streaming.media.events.domain.DeliveryFailure;
 import com.libra.streaming.media.events.domain.OutboxDelivery;
 import java.time.Duration;
 import java.util.concurrent.Executors;
@@ -18,10 +19,13 @@ import java.util.function.Consumer;
 public final class OutboxRelay implements AutoCloseable {
     /** Bounds one drain so a large backlog cannot starve the scheduler's shutdown check. */
     static final int MAX_PER_DRAIN = 100;
+    /** Reported for every recorded acknowledgement; every other code is a warning. */
+    public static final String ACKNOWLEDGED = "OUTBOX_ACKNOWLEDGED";
 
     private final OutboxEvents events;
     private final EventPublisher publisher;
     private final Settings settings;
+    /** Receives fixed outcome codes only: never an event, a key or an exception text. */
     private final Consumer<String> report;
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -67,13 +71,15 @@ public final class OutboxRelay implements AutoCloseable {
             Thread.currentThread().interrupt();
             return false;
         } catch (RuntimeException exception) {
-            report.accept("OUTBOX_BROKER_UNAVAILABLE");
-            settle(() -> events.retry(delivery, settings.maxRetryDelay()));
+            var failure = exception instanceof EventPublisher.Failure classified ? classified.reason()
+                    : DeliveryFailure.BROKER_UNAVAILABLE;
+            report.accept("OUTBOX_" + failure.name());
+            settle(() -> events.retry(delivery, failure, settings.maxRetryDelay()));
             // A failing broker fails the next event too; wait for the next poll.
             return false;
         }
         try {
-            if (!events.sent(delivery)) { report.accept("OUTBOX_DELIVERY_FENCED"); }
+            report.accept(events.sent(delivery) ? ACKNOWLEDGED : "OUTBOX_DELIVERY_FENCED");
             return true;
         } catch (RuntimeException exception) {
             // The record is on the broker; the expired lease makes the event deliverable (and duplicated) again.

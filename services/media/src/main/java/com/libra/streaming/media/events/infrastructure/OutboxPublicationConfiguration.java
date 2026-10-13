@@ -2,6 +2,7 @@ package com.libra.streaming.media.events.infrastructure;
 
 import com.libra.streaming.media.events.application.OutboxEvents;
 import com.libra.streaming.media.events.application.OutboxRelay;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,8 +31,12 @@ public class OutboxPublicationConfiguration {
 
     // The relay stops (destroyed first, as it depends on the publisher) before the producer closes.
     @Bean(initMethod = "start", destroyMethod = "close")
-    OutboxRelay outboxRelay(OutboxEvents events, KafkaEventPublisher publisher, OutboxRelay.Settings settings) {
-        return new OutboxRelay(events, publisher, settings,
-                code -> LoggerFactory.getLogger(OutboxPublicationConfiguration.class).warn("Media outbox: {}", code));
+    OutboxRelay outboxRelay(OutboxEvents events, KafkaEventPublisher publisher, OutboxRelay.Settings settings,
+            MeterRegistry metrics) {
+        var log = LoggerFactory.getLogger(OutboxPublicationConfiguration.class);
+        return new OutboxRelay(events, publisher, settings, code -> {
+            metrics.counter("libra.media.outbox.relay", "outcome", code).increment();
+            if (!OutboxRelay.ACKNOWLEDGED.equals(code)) { log.warn("Media outbox: {}", code); }
+        });
     }
 }

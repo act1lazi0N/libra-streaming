@@ -109,7 +109,7 @@ class MediaPersistenceIntegrationTest {
                     INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
                         correlation_id, payload, next_attempt_at, created_at)
                     VALUES (?, ?, 1, 1, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    """, event, command.assetId(), command.requestId(), "{\"state\":\"READY\",\"durationSeconds\":60}");
+                    """, event, command.assetId(), command.requestId(), payload(command, "READY", 60));
         });
         assertThat(persistence.read(command.uploadId()).assetState()).isEqualTo("READY");
         assertThat(count("media_outbox_events")).isEqualTo(1);
@@ -186,7 +186,7 @@ class MediaPersistenceIntegrationTest {
                     UPDATE media_assets SET state = 'PROCESSING', aggregate_version = 1
                     WHERE asset_id = ? AND asset_version = 1 AND state = 'QUEUED' AND aggregate_version = 0
                     """, command.assetId())).isEqualTo(1);
-            insertOutbox(command.assetId(), correlation, 1);
+            insertOutbox(command, correlation, 1, "PROCESSING");
         });
         assertThatThrownBy(() -> jdbc.update("""
                 UPDATE media_outbox_events SET delivery_state = 'LEASED'
@@ -201,7 +201,7 @@ class MediaPersistenceIntegrationTest {
                     UPDATE media_assets SET state = 'FAILED', aggregate_version = 2
                     WHERE asset_id = ? AND asset_version = 1 AND state = 'PROCESSING' AND aggregate_version = 1
                     """, command.assetId());
-            insertOutbox(command.assetId(), correlation, 1);
+            insertOutbox(command, correlation, 1, "PROCESSING");
         })).isInstanceOf(DataIntegrityViolationException.class);
         assertThat(jdbc.queryForObject("SELECT state FROM media_assets WHERE asset_id = ?", String.class,
                 command.assetId())).isEqualTo("PROCESSING");
@@ -242,9 +242,12 @@ class MediaPersistenceIntegrationTest {
         jdbc.update("""
                 INSERT INTO upgrade_media_m04.media_outbox_events(event_id, asset_id, asset_version,
                     aggregate_version, correlation_id, payload, next_attempt_at, created_at)
-                VALUES (?, ?, 1, 1, ?, '{"state":"PROCESSING"}'::jsonb,
-                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, UUID.randomUUID(), asset, UUID.randomUUID());
+                VALUES (?, ?, 1, 1, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, UUID.randomUUID(), asset, UUID.randomUUID(),
+                // Since V7 the upgrade refuses an event that is not the contract event of its own asset: Media has only
+                // ever written complete payloads (M23), so a database holding anything else must not start publishing.
+                "{\"contentId\":\"" + content + "\",\"bindingId\":\"" + binding + "\",\"assetId\":\"" + asset
+                        + "\",\"assetVersion\":1,\"state\":\"PROCESSING\"}");
         Flyway after = Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("upgrade_media_m04").defaultSchema("upgrade_media_m04").load();
         after.migrate();
@@ -265,12 +268,19 @@ class MediaPersistenceIntegrationTest {
                 """, asset)).isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    private void insertOutbox(UUID asset, UUID correlation, long version) {
+    private void insertOutbox(MediaPersistenceService.Ensure command, UUID correlation, long version, String state) {
         jdbc.update("""
                 INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
                     correlation_id, payload, next_attempt_at, created_at)
                 VALUES (?, ?, 1, ?, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, UUID.randomUUID(), asset, version, correlation, "{\"state\":\"PROCESSING\"}");
+                """, UUID.randomUUID(), command.assetId(), version, correlation, payload(command, state, null));
+    }
+
+    /** The complete contract payload; since V7 the database refuses anything less. */
+    private static String payload(MediaPersistenceService.Ensure command, String state, Integer durationSeconds) {
+        return "{\"contentId\":\"" + command.contentId() + "\",\"bindingId\":\"" + command.bindingId()
+                + "\",\"assetId\":\"" + command.assetId() + "\",\"assetVersion\":1,\"state\":\"" + state + "\""
+                + (durationSeconds == null ? "" : ",\"durationSeconds\":" + durationSeconds) + "}";
     }
 
     private <T> java.util.List<T> race(Callable<T> attempt) throws Exception {
