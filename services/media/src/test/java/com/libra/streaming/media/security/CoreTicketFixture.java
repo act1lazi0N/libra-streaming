@@ -3,15 +3,19 @@ package com.libra.streaming.media.security;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSObject;
+import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.SignedJWT;
+import com.nimbusds.jose.util.JSONObjectUtils;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -57,6 +61,7 @@ public final class CoreTicketFixture {
     public static final class Ticket {
         private KeyPair signer;
         private final JWTClaimsSet.Builder claims;
+        private final Map<String, String> literals = new LinkedHashMap<>();
         private final JWSHeader.Builder header = new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KID)
                 .type(JOSEObjectType.JWT);
 
@@ -74,12 +79,25 @@ public final class CoreTicketFixture {
 
         public Ticket signedBy(KeyPair other) { signer = other; return this; }
 
+        /**
+         * Writes {@code name} as exactly the JSON number text {@code number} (e.g. {@code 1791878700.9} or
+         * {@code 1.7918787E9}), which Nimbus's own serialisation would never produce for a timestamp.
+         */
+        public Ticket literal(String name, String number) { literals.put(name, number); return this; }
+
         public String sign() {
             try {
-                var jwt = new SignedJWT(header.build(), claims.build());
-                jwt.sign(new RSASSASigner(signer.getPrivate()));
-                return jwt.serialize();
+                for (var name : literals.keySet()) { claims.claim(name, marker(name)); }
+                String json = JSONObjectUtils.toJSONString(claims.build().toJSONObject());
+                for (var literal : literals.entrySet()) {
+                    json = json.replace('"' + marker(literal.getKey()) + '"', literal.getValue());
+                }
+                var jws = new JWSObject(header.build(), new Payload(json));
+                jws.sign(new RSASSASigner(signer.getPrivate()));
+                return jws.serialize();
             } catch (Exception exception) { throw new AssertionError(exception); }
         }
+
+        private static String marker(String name) { return "literal-claim-" + name; }
     }
 }

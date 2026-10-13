@@ -122,6 +122,39 @@ class PlaybackTicketVerifierTest {
     }
 
     @Test
+    void issuedAtAndExpiryMustBeIntegerSecondsOnTheWireNotMerelyTruncateToThem() {
+        long issued = now.getEpochSecond();
+        var decoder = decoderAt(now);
+        assertThat(decoder.decode(ticket().literal("iat", Long.toString(issued))
+                .literal("exp", Long.toString(issued + 300)).sign())).as("integer literals, as Core writes them")
+                .isNotNull();
+        Map<String, UnaryOperator<CoreTicketFixture.Ticket>> faults = new LinkedHashMap<>();
+        faults.put("fractional expiry", t -> t.literal("exp", (issued + 299) + ".9"));
+        faults.put("expiry with a zero fraction", t -> t.literal("exp", (issued + 300) + ".0"));
+        faults.put("expiry in exponent notation", t -> t.literal("exp", exponent(issued + 300)));
+        faults.put("fractional issued at, after the verifier's now", t -> t.literal("iat", issued + ".5"));
+        faults.put("issued at with a zero fraction", t -> t.literal("iat", issued + ".0"));
+        faults.put("issued at in exponent notation", t -> t.literal("iat", exponent(issued)));
+        faults.put("claimed lifetime 300.05 s that truncates to 300 s", t -> t.literal("iat", (issued - 1) + ".9")
+                .literal("exp", (issued + 299) + ".95"));
+        faults.put("expiry as numeric text", t -> t.literal("exp", "\"" + (issued + 300) + "\""));
+        List<String> accepted = new java.util.ArrayList<>();
+        for (var fault : faults.entrySet()) {
+            String token = fault.getValue().apply(ticket()).sign();
+            try { decoder.decode(token); accepted.add(fault.getKey()); }
+            catch (JwtException refused) { assertThat(refused).as(fault.getKey()).hasMessageNotContaining(token); }
+        }
+        assertThat(accepted).as("tickets accepted although iat/exp are not integers on the wire").isEmpty();
+        assertThat(faults).hasSize(8);
+    }
+
+    /** {@code 1791878400} as {@code 1.7918784E9}: the same value, never written by Core. */
+    private static String exponent(long seconds) {
+        String digits = Long.toString(seconds);
+        return digits.charAt(0) + "." + digits.substring(1).replaceAll("0+$", "") + "E" + (digits.length() - 1);
+    }
+
+    @Test
     void tamperingUnsignedAndSymmetricTokensAreRefused() throws Exception {
         var decoder = decoderAt(now);
         String token = ticket().sign();

@@ -1,5 +1,6 @@
 package com.libra.streaming.media.delivery.api;
 
+import com.libra.streaming.media.delivery.application.StreamAdmission;
 import com.libra.streaming.media.delivery.application.StreamDelivery;
 import com.libra.streaming.media.delivery.application.StreamObjects;
 import java.util.UUID;
@@ -28,6 +29,17 @@ public class StreamProblems {
             org.springframework.transaction.TransactionException.class})
     ResponseEntity<ProblemDetail> unavailable(RuntimeException exception) {
         return response(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UNAVAILABLE");
+    }
+
+    /**
+     * The session holds its share of streams, or this instance is at capacity. Both are 503 with {@code Retry-After}:
+     * HLS players retry a 5xx by default but give up on a 4xx such as 429.
+     */
+    @ExceptionHandler({StreamAdmission.SessionBusy.class, StreamAdmission.Busy.class})
+    ResponseEntity<ProblemDetail> busy(RuntimeException exception) {
+        var response = response(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UNAVAILABLE");
+        return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders())
+                .header("Retry-After", "1").body(response.getBody());
     }
 
     private static ResponseEntity<ProblemDetail> response(HttpStatus status, String code) {

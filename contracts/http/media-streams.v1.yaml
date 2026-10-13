@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: LIBRA Media protected HLS delivery
-  version: 1.0.0
+  version: 1.1.0
   description: >-
-    Delivered in M27. Serves the master playlist, the rendition playlist and the
+    Delivered in M27, hardened in M28. Serves the master playlist, the rendition playlist and the
     MPEG-TS segments of the READY asset generation a Core playback ticket names.
     Core issues the ticket at playback admission and renewal (see
     core-playback.v1.yaml and docs/core-playback.md) as the cookie
@@ -13,15 +13,19 @@ info:
     independently: RS256 with Core's pinned playback public key and kid, typ
     JWT, issuer libra-core-playback, sole audience libra-media, purpose
     media-playback, canonical UUID sub/jti/contentId/bindingId/assetId, a
-    positive integer assetVersion, iat not in the future, exp strictly after now
-    and after iat, and at most 300 seconds between them. The subject must equal
+    positive integer assetVersion, iat and exp written as JSON integers (epoch
+    seconds, never a fraction or exponent form), iat not in the future, exp
+    strictly after now and after iat, and at most 300 seconds between them. The subject must equal
     the path's sessionId, and Media's own record of assetId/assetVersion must be
     READY and belong to the ticket's contentId and bindingId. The ticket is
     accepted only from exactly one cookie; an Authorization header, a repeated
     cookie or a query parameter is refused. Object keys are derived by Media from
     its READY record and the closed name vocabulary, never from browser input.
     Delivery stops no later than ticket expiry; already downloaded bytes cannot
-    be recalled.
+    be recalled. Each Media instance serves a bounded number of streams at once,
+    in total and per playback session, and bounds how long one response may take;
+    these protect the instance and are not a quota on how many sessions a viewer
+    may open.
 servers:
   - url: http://media:8082
 security:
@@ -42,7 +46,10 @@ paths:
         which names segment-NNNNN.ts), so a player resolves them beneath the same
         session path and its cookie. Responses are complete bodies with
         Content-Length; Range is not supported. A storage failure after the body
-        has started aborts the connection instead of ending the body short.
+        has started aborts the connection instead of ending the body short, and
+        so does a response that outlives the transfer timeout (60 s by default,
+        counted from admission) or the ticket's exp because the player reads too
+        slowly.
       parameters:
         - name: sessionId
           in: path
@@ -79,7 +86,7 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
         '503':
-          $ref: '#/components/responses/Problem'
+          $ref: '#/components/responses/RetryLater'
 components:
   securitySchemes:
     playbackTicket:
@@ -101,8 +108,25 @@ components:
         another session or a selection Media records for another binding or
         content, and for any method but GET; 404 NOT_FOUND for a name outside the
         vocabulary, an unknown or not yet READY asset version, or a missing
-        object; 503 MEDIA_UNAVAILABLE when the database or storage cannot answer.
+        object; 503 MEDIA_UNAVAILABLE when the database or storage cannot answer,
+        when the playback session already holds its share of concurrent streams
+        on the instance (4 by default), or when the instance is at its stream
+        capacity (64 by default).
         Failure never reports an object key, bucket, playlist or raw exception.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RetryLater:
+      description: >-
+        A Problem as above. A 503 for a stream limit (the session's share or
+        the instance's capacity) carries Retry-After: 1 and the player retries
+        the same request; it is a 5xx, not a 429, because HLS players retry 5xx
+        responses by default and give up on 4xx ones. A 503 caused by the
+        database or storage carries no Retry-After.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying; present when the refusal is a stream limit.
+          schema: { type: integer, const: 1 }
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

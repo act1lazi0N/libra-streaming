@@ -32,14 +32,14 @@ public class StreamController {
         try (var stream = delivery.open(grant, name)) {
             response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(stream.contentType());
-            response.setContentLengthLong(stream.body().length());
+            response.setContentLengthLong(stream.length());
             // Personal, short-lived authorization: no shared or browser cache may keep or replay it.
             response.setHeader("Cache-Control", "no-store");
             response.setHeader("X-Content-Type-Options", "nosniff");
             var sink = response.getOutputStream();
             try {
-                stream.body().transferTo(sink);
-            } catch (StreamObjects.Unavailable broken) {
+                stream.transferTo(sink);
+            } catch (StreamObjects.Unavailable | StreamDelivery.Expired broken) {
                 // Headers are gone: only cutting the connection tells the player this body is incomplete.
                 throw new Interrupted();
             } catch (IOException clientGone) {
@@ -53,10 +53,13 @@ public class StreamController {
                 UUID.fromString(ticket.getClaimAsString("contentId")),
                 UUID.fromString(ticket.getClaimAsString("bindingId")),
                 UUID.fromString(ticket.getClaimAsString("assetId")),
-                ticket.<Long>getClaim("assetVersion"));
+                ticket.<Long>getClaim("assetVersion"), ticket.getExpiresAt());
     }
 
-    /** Storage failed after the response was committed; deliberately unhandled so the container aborts the response. */
+    /**
+     * Storage failed, or the transfer timeout passed, after the response was committed; deliberately unhandled so the
+     * container aborts the response.
+     */
     static final class Interrupted extends RuntimeException {
         Interrupted() { super("STREAM_INTERRUPTED", null, false, false); }
     }

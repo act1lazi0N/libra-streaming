@@ -71,6 +71,10 @@ segments of a READY generation at `/v1/streams/{sessionId}/{name}` (`/api/media/
 carrying exactly one Core-signed playback ticket cookie for that session, whose asset version Media records as READY
 for the ticket's binding; keys come from Media's record and a closed name vocabulary. It is off until
 `MEDIA_PLAYBACK_ENABLED=true` with Core's playback public key (Compose forwards `CORE_PLAYBACK_PUBLIC_KEY`).
+[Protected delivery hardening](docs/media-protected-delivery-hardening-m28.md) bounds each instance's concurrent streams
+in total and per playback session (`MEDIA_DELIVERY_MAX_STREAMS`, `MEDIA_DELIVERY_MAX_STREAMS_PER_SESSION`; a retryable 503
+with `Retry-After`), cuts a response that outlives `MEDIA_DELIVERY_TRANSFER_TIMEOUT` or its ticket instead of letting a
+slow player hold it, and refuses a ticket whose `iat` or `exp` is not a JSON integer.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

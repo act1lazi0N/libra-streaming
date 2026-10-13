@@ -131,10 +131,15 @@ class ProtectedStreamIntegrationTest extends FinalizationFixture {
         String expired = CORE.ticket(session, selection.content(), selection.binding(), selection.asset(),
                 selection.version(), Instant.now().minusSeconds(301)).sign();
         String foreign = ticket(session, selection).signedBy(FOREIGN.keyPair()).sign();
+        // Core writes integer seconds; the same expiry with a fraction on the wire is refused (M28), not truncated.
+        long expiry = Instant.now().truncatedTo(ChronoUnit.SECONDS).getEpochSecond() + 299;
+        String integral = ticket(session, selection).literal("exp", Long.toString(expiry)).sign();
+        String fractional = ticket(session, selection).literal("exp", expiry + ".5").sign();
         String serviceToken = ticket(session, selection).claim("iss", "libra-core-services")
                 .claim("aud", List.of("libra-media-internal")).claim("purpose", "service-access").sign();
         for (var name : ROUTES) {
             mvc.perform(stream(session, name).cookie(new Cookie(COOKIE, valid))).andExpect(status().isOk());
+            mvc.perform(stream(session, name).cookie(new Cookie(COOKIE, integral))).andExpect(status().isOk());
 
             unauthorized(stream(session, name));
             unauthorized(stream(session, name).cookie(new Cookie("LIBRA_PLAYBACK", valid)));
@@ -147,6 +152,7 @@ class ProtectedStreamIntegrationTest extends FinalizationFixture {
             unauthorized(stream(session, name).cookie(new Cookie(COOKIE, foreign)));
             unauthorized(stream(session, name).cookie(new Cookie(COOKIE, serviceToken)));
             unauthorized(stream(session, name).cookie(new Cookie(COOKIE, valid + "x")));
+            unauthorized(stream(session, name).cookie(new Cookie(COOKIE, fractional)));
 
             // A valid ticket opens its own session's path only.
             forbidden(stream(session, name).cookie(new Cookie(COOKIE, otherSession)));

@@ -1,9 +1,11 @@
 package com.libra.streaming.media.security;
 
+import com.nimbusds.jose.JWSObject;
 import jakarta.servlet.http.HttpServletRequest;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
+import java.text.ParseException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Base64;
@@ -99,9 +101,9 @@ public class PlaybackTicketSecurity {
 
     /**
      * Verifies Core's ticket with only Core's pinned public key: RS256, the pinned key ID, type JWT, the exact issuer,
-     * sole audience and purpose, canonical UUID identifiers, a positive integer asset version, and a lifetime of at most
-     * five minutes that has started and has not reached its expiry (equality is expired). Nothing in the token chooses
-     * a key or URL.
+     * sole audience and purpose, canonical UUID identifiers, a positive integer asset version, integer-second timestamps
+     * and a lifetime of at most five minutes that has started and has not reached its expiry (equality is expired).
+     * Nothing in the token chooses a key or URL.
      */
     static JwtDecoder decoder(PlaybackTicketProperties properties, Clock clock) {
         if (!properties.enabled()) {
@@ -131,7 +133,7 @@ public class PlaybackTicketSecurity {
                     && uuid(jwt.getClaims().get("contentId")) && uuid(jwt.getClaims().get("bindingId"))
                     && uuid(jwt.getClaims().get("assetId"))
                     && jwt.getClaims().get("assetVersion") instanceof Long version && version > 0
-                    && issued != null && expires != null
+                    && issued != null && expires != null && integralSeconds(jwt.getTokenValue())
                     && !issued.isAfter(now) && expires.isAfter(now) && expires.isAfter(issued)
                     && Duration.between(issued, expires).compareTo(MAX_LIFETIME) <= 0;
             return valid ? OAuth2TokenValidatorResult.success()
@@ -139,6 +141,18 @@ public class PlaybackTicketSecurity {
         };
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestamps, claims));
         return decoder;
+    }
+
+    /**
+     * Core writes {@code iat} and {@code exp} as JSON integers; Nimbus would silently truncate {@code 1791878699.9} or
+     * read {@code 1.7918787E9}, letting a claimed lifetime over five minutes or an issue time after now pass.
+     * Validators run only after the signature verified, so this re-reads a payload already known to be Core's.
+     */
+    private static boolean integralSeconds(String token) {
+        try {
+            var payload = JWSObject.parse(token).getPayload().toJSONObject();
+            return payload != null && payload.get("iat") instanceof Long && payload.get("exp") instanceof Long;
+        } catch (ParseException malformed) { return false; }
     }
 
     /** A canonical lowercase UUID, exactly as Core writes one. */

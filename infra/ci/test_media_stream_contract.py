@@ -1,4 +1,4 @@
-"""M27 protected stream contract, cross-checked against Core's playback contract; no HTTP runtime is involved."""
+"""M27/M28 protected stream contract, cross-checked against Core's playback contract; no HTTP runtime is involved."""
 import re
 import unittest
 from pathlib import Path
@@ -53,6 +53,19 @@ class MediaStreamContractTest(unittest.TestCase):
         self.assertEqual({"401": ["AUTHENTICATION_REQUIRED"], "403": ["ACCESS_DENIED"], "404": ["NOT_FOUND"],
                           "503": ["MEDIA_UNAVAILABLE"]}, self.operation()["x-error-codes"])
         self.assertNotIn("post", STREAMS["paths"]["/v1/streams/{sessionId}/{name}"])
+
+    def test_stream_limits_are_retryable_and_use_foundation_codes(self):
+        responses = self.operation()["responses"]
+        # A stream limit is a retryable 5xx, never a 4xx an HLS player would give up on.
+        self.assertNotIn("429", responses)
+        self.assertEqual("#/components/responses/RetryLater", responses["503"]["$ref"])
+        retry = STREAMS["components"]["responses"]["RetryLater"]
+        self.assertEqual(1, retry["headers"]["Retry-After"]["schema"]["const"])
+        foundation = yaml.safe_load((ROOT / "contracts/http/core-foundation.v1.yaml").read_text(encoding="utf-8"))
+        codes = foundation["components"]["schemas"]["Problem"]["properties"]["code"]["enum"]
+        for listed in self.operation()["x-error-codes"].values():
+            self.assertTrue(set(listed) <= set(codes), listed)
+        self.assertIn("JSON integers", STREAMS["info"]["description"])
 
 
 if __name__ == "__main__":
