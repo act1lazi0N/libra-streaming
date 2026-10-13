@@ -1,4 +1,6 @@
-"""M27/M28 protected stream contract, cross-checked against Core's playback contract; no HTTP runtime is involved."""
+"""M27-M29 protected stream contract, cross-checked against Core's playback contract and the ingress configuration;
+no HTTP runtime is involved."""
+import json
 import re
 import unittest
 from pathlib import Path
@@ -66,6 +68,48 @@ class MediaStreamContractTest(unittest.TestCase):
         for listed in self.operation()["x-error-codes"].values():
             self.assertTrue(set(listed) <= set(codes), listed)
         self.assertIn("JSON integers", STREAMS["info"]["description"])
+
+    def test_ingress_forwards_exactly_the_contract_route_and_answers_its_own_refusals_as_problems(self):
+        nginx = (ROOT / "infra/nginx/nginx.conf").read_text(encoding="utf-8")
+        location = re.search(r'location ~ "(\^/api/media/v1/streams/[^"]+)" \{(.*?)\n        \}', nginx, re.S)
+        self.assertIsNotNone(location, "The ingress has no exact stream location")
+        route, body = re.compile(location.group(1)), location.group(2)
+        names = re.compile(next(p for p in self.operation()["parameters"] if p["name"] == "name")["schema"]["pattern"])
+        for name in ("master.m3u8", "rendition.m3u8", "segment-00000.ts", "segment-00299.ts", "source.mp4",
+                     "segment-0000.ts", "master.M3U8", "rendition.m3u8.bak", "x/master.m3u8"):
+            # The ingress forwards a name exactly when the contract's vocabulary admits it.
+            self.assertEqual(bool(names.fullmatch(name)), bool(route.fullmatch(f"/api/media/v1/streams/{SESSION}/{name}")), name)
+        for session in ("ABCDEF66-6666-4666-8666-666666666666", "not-a-session", SESSION + "0"):
+            self.assertIsNone(route.fullmatch(f"/api/media/v1/streams/{session}/master.m3u8"), session)
+        self.assertIn("rewrite ^/api/media(/.*)$ $1 break;", body)
+        # Protected bytes are never cached or spooled to the ingress's disk.
+        self.assertIn("proxy_max_temp_file_size 0;", body)
+        self.assertNotIn("proxy_cache", nginx)
+        self.assertNotIn("proxy_intercept_errors", nginx)
+        self.assertEqual({"stream_session": "4", "stream_client": "16"}, dict(re.findall(r"limit_conn (\w+) (\d+);", body)))
+        foundation = yaml.safe_load((ROOT / "contracts/http/core-foundation.v1.yaml").read_text(encoding="utf-8"))
+        problem = foundation["components"]["schemas"]["Problem"]
+        bodies = re.findall(r"return (\d{3}) '(\{.*?\})';", nginx)
+        self.assertEqual({("400", "INVALID_REQUEST"), ("403", "ACCESS_DENIED"), ("404", "NOT_FOUND"),
+                          ("503", "MEDIA_UNAVAILABLE")},
+                         {(status, json.loads(template.replace("$problem_id", SESSION))["code"])
+                          for status, template in bodies})
+        for status, template in bodies:
+            value = json.loads(template.replace("$problem_id", SESSION))
+            self.assertTrue(set(problem["required"]) <= set(value), status)
+            self.assertEqual(int(status), value["status"])
+            self.assertIn(value["code"], problem["properties"]["code"]["enum"])
+        busy = re.search(r"location @stream_busy \{(.*?)\n        \}", nginx, re.S).group(1)
+        self.assertIn("add_header Retry-After 1 always;", busy)
+        unavailable = re.search(r"location @stream_unavailable \{(.*?)\n        \}", nginx, re.S).group(1)
+        self.assertNotIn("Retry-After", unavailable)
+        self.assertIn("error_page 502 504 = @stream_unavailable;", body)
+        # Methods and bodies are refused by `if`/`return`, which run in the rewrite phase, before limit_conn (preaccess).
+        self.assertIn("if ($request_method != GET) {", body)
+        self.assertIn("if ($stream_body) {", body)
+        # Every answer Nginx writes on these paths is a problem, whatever the name's extension.
+        self.assertEqual(4, nginx.count("types { }"))
+        self.assertIn("Nginx", STREAMS["info"]["description"])
 
 
 if __name__ == "__main__":

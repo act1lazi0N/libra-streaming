@@ -1,0 +1,5 @@
+**
+!services/
+!services/media/
+!services/media/target/
+!services/media/target/media-service-0.1.0-SNAPSHOT.jar

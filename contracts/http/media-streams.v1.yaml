@@ -1,15 +1,27 @@
 openapi: 3.1.0
 info:
   title: LIBRA Media protected HLS delivery
-  version: 1.1.0
+  version: 1.2.0
   description: >-
-    Delivered in M27, hardened in M28. Serves the master playlist, the rendition playlist and the
+    Delivered in M27, hardened in M28, served through the ingress in M29. Serves the master playlist, the rendition playlist and the
     MPEG-TS segments of the READY asset generation a Core playback ticket names.
     Core issues the ticket at playback admission and renewal (see
     core-playback.v1.yaml and docs/core-playback.md) as the cookie
     __Secure-LIBRA_PLAYBACK (LIBRA_PLAYBACK for explicit loopback development)
-    with Path=/api/media/v1/streams/{sessionId}/; Nginx forwards
-    /api/media/v1/streams/... to these routes. Every request is verified
+    with Path=/api/media/v1/streams/{sessionId}/. Nginx forwards
+    /api/media/v1/streams/{sessionId}/{name} to these routes only when the
+    sessionId is a lowercase UUID and the name is in the vocabulary below;
+    any other path beneath /api/media/v1/streams/ is a 404 problem from
+    Nginx that never reaches Media, a method other than GET is a 403
+    ACCESS_DENIED problem and a request announcing a body (Content-Length or
+    Transfer-Encoding) a 400 INVALID_REQUEST problem, both answered by Nginx
+    before any limit counts them. Nginx neither caches nor writes these
+    responses to disk, and it bounds concurrent stream requests to 4 per
+    playback session and 16 per peer address it sees (one address for every
+    client behind a proxy or NAT) across all Media instances, answering an
+    excess request as the retryable 503 below; Media unreachable or not
+    answering in time is the 503 without Retry-After. Correlation IDs in
+    problems Nginx writes are not logged. Every request is verified
     independently: RS256 with Core's pinned playback public key and kid, typ
     JWT, issuer libra-core-playback, sole audience libra-media, purpose
     media-playback, canonical UUID sub/jti/contentId/bindingId/assetId, a

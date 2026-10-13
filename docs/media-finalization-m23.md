@@ -17,7 +17,7 @@ M25 publisher will deliver. Core therefore still sees no Media readiness, and pr
 
 `OutputFinalizer` is the last stage and the production `MediaJobHandler`. It is wired only when the transcode stage is
 configured (`libra.media.transcode.executable`), and runs only when the worker is separately enabled
-(`libra.media.worker.enabled`, still `false` by default and in Compose).
+(`libra.media.worker.enabled`, `false` by default; Compose enables it since [M29](media-protected-delivery-ingress-m29.md)).
 
 1. `SourceTranscoder` hands over a sealed workspace (M21/M22) and the frozen source key it encoded.
 2. `HlsPackage.requireConsistent` re-reads the workspace: the variant playlist must equal the one written for the

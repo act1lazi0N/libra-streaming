@@ -59,7 +59,7 @@ and its outbox event in one lease-fenced transaction; PROCESSING and FAILED tran
 [Finalization hardening](docs/media-finalization-hardening-m24.md) pins the bytes the seal vouched for (segment
 digests and exact playlists, so a tag-borne URI or a later rewrite cannot be stored as READY), adds database guards
 that keep a selected generation immutable and refuse READY without its event, and records the crash, overtaking and
-lost-acknowledgement matrix. The worker is disabled by default; with the transcode stage configured, the finalizer is its job handler.
+lost-acknowledgement matrix. The worker is disabled by default and enabled in Compose (M29); with the transcode stage configured, the finalizer is its job handler.
 [Outbox publication](docs/media-outbox-publication-m25.md) delivers those events to `media.assets.v1` at least once,
 in version order per asset, behind database guards that keep events immutable; Core projects the published records
 (shared wire examples in `contracts/events/examples/`). The relay is off by default and on in Compose.
@@ -75,6 +75,11 @@ for the ticket's binding; keys come from Media's record and a closed name vocabu
 in total and per playback session (`MEDIA_DELIVERY_MAX_STREAMS`, `MEDIA_DELIVERY_MAX_STREAMS_PER_SESSION`; a retryable 503
 with `Retry-After`), cuts a response that outlives `MEDIA_DELIVERY_TRANSFER_TIMEOUT` or its ticket instead of letting a
 slow player hold it, and refuses a ticket whose `iat` or `exp` is not a JSON integer.
+[Ingress playback](docs/media-protected-delivery-ingress-m29.md) serves the slice end to end in the real Compose stack:
+an administrator's upload becomes READY through Media's worker and Kafka, Core publishes it, and a Premium viewer's
+Core-signed ticket plays the HLS through Nginx, which forwards only GETs of the exact stream route, never caches or spools it to
+disk, and bounds concurrent streams per playback session (4) and per client address (16) with the same retryable 503.
+`infra/smoke/check-media-m29.ps1` runs it with generated keys and removes everything it created.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

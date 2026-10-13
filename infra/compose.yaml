@@ -166,6 +166,8 @@ services:
       MEDIA_STORAGE_PROBE_ON_STARTUP: false
       MEDIA_FFPROBE_PATH: /usr/bin/ffprobe
       MEDIA_FFMPEG_PATH: /usr/bin/ffmpeg
+      # The worker runs probe, transcode and finalization (M15-M24); without it an upload never leaves QUEUED.
+      MEDIA_WORKER_ENABLED: ${MEDIA_WORKER_ENABLED:-true}
       MEDIA_OUTBOX_ENABLED: ${MEDIA_OUTBOX_ENABLED:-true}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     read_only: true
@@ -200,7 +202,7 @@ services:
     profiles: ["full"]
     image: nginx:1.29.3-alpine
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
