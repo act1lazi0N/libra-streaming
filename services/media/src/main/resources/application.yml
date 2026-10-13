@@ -69,6 +69,11 @@ libra:
       enabled: ${MEDIA_CORE_SERVICE_AUTH_ENABLED:false}
       public-key: ${MEDIA_CORE_SERVICE_PUBLIC_KEY:}
       key-id: ${MEDIA_CORE_SERVICE_KEY_ID:}
+    playback:
+      enabled: ${MEDIA_PLAYBACK_ENABLED:false}
+      public-key: ${MEDIA_PLAYBACK_PUBLIC_KEY:}
+      key-id: ${MEDIA_PLAYBACK_KEY_ID:}
+      secure-cookie: ${MEDIA_PLAYBACK_SECURE_COOKIE:true}
     storage:
       enabled: ${MEDIA_STORAGE_ENABLED:true}
       internal-endpoint: ${MEDIA_S3_INTERNAL_ENDPOINT:}

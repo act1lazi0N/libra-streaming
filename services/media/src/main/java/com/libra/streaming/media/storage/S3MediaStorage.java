@@ -10,11 +10,13 @@ import java.util.HexFormat;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -74,6 +76,21 @@ final class S3MediaStorage implements AutoCloseable {
             var response = client.headObject(HeadObjectRequest.builder()
                     .bucket(location.bucket()).key(location.key()).build());
             return Optional.of(new ObjectMetadata(response.contentLength(), response.contentType()));
+        } catch (S3Exception exception) {
+            if (exception.statusCode() == 404) { return Optional.empty(); }
+            throw MediaStorageException.from(exception);
+        } catch (SdkException failure) { throw MediaStorageException.from(failure); }
+    }
+
+    /**
+     * Opens an object for one streaming pass, or empty if it does not exist. The caller owns the body: it must read it
+     * to the end and close it, or abort it.
+     */
+    Optional<ResponseInputStream<GetObjectResponse>> open(Area area, String key) {
+        var location = location(area, key);
+        try {
+            return Optional.of(client.getObject(GetObjectRequest.builder()
+                    .bucket(location.bucket()).key(location.key()).build()));
         } catch (S3Exception exception) {
             if (exception.statusCode() == 404) { return Optional.empty(); }
             throw MediaStorageException.from(exception);

@@ -54,7 +54,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
         "libra.media.storage.initialize-buckets=true",
         "libra.media.storage.probe-on-startup=false"
 })
-abstract class SourceStorageFixture {
+public abstract class SourceStorageFixture {
     static final String BUCKET = "libra-source";
     private static final String ACCESS = "fixture-" + UUID.randomUUID();
     private static final String SECRET = UUID.randomUUID().toString() + UUID.randomUUID();
@@ -103,7 +103,7 @@ abstract class SourceStorageFixture {
     @Autowired JobLeases leases;
     @Autowired JobSources sources;
     @Autowired MediaPersistenceService uploads;
-    @Autowired JdbcTemplate jdbc;
+    @Autowired protected JdbcTemplate jdbc;
     @Autowired S3Client client;
     @Autowired StagingUploadSigner signer;
     @Autowired MediaStorageProperties configured;

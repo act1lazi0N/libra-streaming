@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.*;
  * Real SeaweedFS, PostgreSQL, ffprobe and ffmpeg for the finalization suites, with one shared Spring context. Kafka is
  * not involved: an event is a committed PENDING outbox row.
  */
-abstract class FinalizationFixture extends SourceStorageFixture {
+public abstract class FinalizationFixture extends SourceStorageFixture {
     static final String HLS = "libra-hls";
 
     @DynamicPropertySource
@@ -40,7 +40,7 @@ abstract class FinalizationFixture extends SourceStorageFixture {
         registry.add("libra.media.storage.max-object-bytes", () -> "8388608");
     }
 
-    @Autowired OutputFinalizer finalizer;
+    @Autowired protected OutputFinalizer finalizer;
     @Autowired MediaJobHandler handler;
     @Autowired SourceTranscoder transcoder;
     @Autowired SourceProber prober;
@@ -49,9 +49,9 @@ abstract class FinalizationFixture extends SourceStorageFixture {
     @Autowired JobStages stages;
     @Autowired ObjectMapper mapper;
 
-    MediaPersistenceService.Ensure upload;
+    protected MediaPersistenceService.Ensure upload;
 
-    JobLease stagedClaim(String name) throws Exception {
+    protected JobLease stagedClaim(String name) throws Exception {
         byte[] content = MediaFixtures.bytes(name);
         upload = queued(content);
         stage(upload, content);
@@ -69,20 +69,20 @@ abstract class FinalizationFixture extends SourceStorageFixture {
         throw new AssertionError("No claimable attempt");
     }
 
-    static String prefix(MediaPersistenceService.Ensure upload, int attempt) {
+    protected static String prefix(MediaPersistenceService.Ensure upload, int attempt) {
         return "hls/" + upload.uploadId() + "/attempt-" + attempt;
     }
 
-    List<String> hlsKeys(String prefix) {
+    protected List<String> hlsKeys(String prefix) {
         return client.listObjectsV2(ListObjectsV2Request.builder().bucket(HLS).prefix(prefix).build()).contents()
                 .stream().map(object -> object.key()).sorted().toList();
     }
 
-    byte[] hlsBytes(String key) {
+    protected byte[] hlsBytes(String key) {
         return client.getObjectAsBytes(request -> request.bucket(HLS).key(key)).asByteArray();
     }
 
-    String hlsText(String key) { return new String(hlsBytes(key), StandardCharsets.UTF_8); }
+    protected String hlsText(String key) { return new String(hlsBytes(key), StandardCharsets.UTF_8); }
 
     /** Every object under a prefix by key, with the SHA-256 of its stored bytes: an exact generation snapshot. */
     Map<String, String> generation(String prefix) {
@@ -104,7 +104,7 @@ abstract class FinalizationFixture extends SourceStorageFixture {
                 """, upload.assetId());
     }
 
-    Map<String, Object> asset() {
+    protected Map<String, Object> asset() {
         return jdbc.queryForMap("SELECT * FROM media_assets WHERE asset_id = ?", upload.assetId());
     }
 

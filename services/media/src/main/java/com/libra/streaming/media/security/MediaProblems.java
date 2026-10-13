@@ -15,10 +15,15 @@ public class MediaProblems {
     public MediaProblems(ObjectMapper mapper) { this.mapper = mapper; }
 
     void write(HttpStatus status, HttpServletResponse response) throws IOException {
+        write(status, response, true);
+    }
+
+    /** {@code bearer} false is for the cookie-authenticated stream routes, which never take a bearer header. */
+    void write(HttpStatus status, HttpServletResponse response, boolean bearer) throws IOException {
         response.setStatus(status.value());
         response.setContentType("application/problem+json");
         response.setHeader("Cache-Control", "no-store");
-        if (status == HttpStatus.UNAUTHORIZED) { response.setHeader("WWW-Authenticate", "Bearer"); }
+        if (bearer && status == HttpStatus.UNAUTHORIZED) { response.setHeader("WWW-Authenticate", "Bearer"); }
         mapper.writeValue(response.getOutputStream(), Map.of(
                 "type", "about:blank", "title", status.getReasonPhrase(), "status", status.value(),
                 "detail", status.getReasonPhrase() + ".",

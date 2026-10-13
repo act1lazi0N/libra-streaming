@@ -65,8 +65,12 @@ in version order per asset, behind database guards that keep events immutable; C
 (shared wire examples in `contracts/events/examples/`). The relay is off by default and on in Compose.
 [Delivery hardening](docs/media-delivery-hardening-m26.md) replaces a producer left in a fatal state, lets the
 database accept only the exact contract event of each transition, records why a delivery failed with backlog and
-age gauges, and shows a killed packaged relay and a hung broker losing nothing. Protected HLS delivery remains a
-subsequent milestone.
+age gauges, and shows a killed packaged relay and a hung broker losing nothing.
+[Protected HLS delivery](docs/media-protected-delivery-m27.md) serves the master playlist, rendition playlist and
+segments of a READY generation at `/v1/streams/{sessionId}/{name}` (`/api/media/...` through Nginx) only to a request
+carrying exactly one Core-signed playback ticket cookie for that session, whose asset version Media records as READY
+for the ticket's binding; keys come from Media's record and a closed name vocabulary. It is off until
+`MEDIA_PLAYBACK_ENABLED=true` with Core's playback public key (Compose forwards `CORE_PLAYBACK_PUBLIC_KEY`).
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d
@@ -98,7 +102,7 @@ pnpm.cmd --dir web build
 docker compose --env-file .env -f infra/compose.yaml config --quiet
 ```
 
-The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests plus real ffprobe fixture tests, which need an `ffprobe` on `PATH` or in `LIBRA_FFPROBE_PATH` and an `ffmpeg` beside it or in `LIBRA_FFMPEG_PATH` to generate their fixtures (a missing tool fails the build); Real ffmpeg transcode tests decode every output; protected HLS integration remains later work.
+The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests plus real ffprobe fixture tests, which need an `ffprobe` on `PATH` or in `LIBRA_FFPROBE_PATH` and an `ffmpeg` beside it or in `LIBRA_FFMPEG_PATH` to generate their fixtures (a missing tool fails the build); Real ffmpeg transcode tests decode every output, and the protected-delivery suite decodes what the stream routes served.
 
 See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Milestone 7 adds the durable background outbox publisher and recovery operations.
 

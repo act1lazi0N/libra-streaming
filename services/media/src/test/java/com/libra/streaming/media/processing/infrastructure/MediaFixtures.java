@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
  * judges the files and the tool that makes them come from the same release. ffmpeg comes from LIBRA_FFMPEG_PATH,
  * else from the directory of the ffprobe in use; a missing tool fails the build with a clear message.
  */
-final class MediaFixtures {
+public final class MediaFixtures {
     private static final Path DIRECTORY = Path.of("target", "media-fixtures").toAbsolutePath();
     private static final String MARKER = ".complete-m22-1";
     private static final List<String> H264 = List.of("-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
@@ -39,7 +39,7 @@ final class MediaFixtures {
 
     static byte[] bytes(String name) throws IOException { return Files.readAllBytes(file(name)); }
 
-    static Path ffmpeg() {
+    public static Path ffmpeg() {
         var configured = System.getenv("LIBRA_FFMPEG_PATH");
         if (configured != null && !configured.isBlank()) { return Path.of(configured).toAbsolutePath(); }
         var sibling = FfprobeLocator.locate().resolveSibling(
