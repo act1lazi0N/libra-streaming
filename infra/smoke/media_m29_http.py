@@ -89,19 +89,22 @@ def problem(status, headers, raw, expected_status, code):
     return body
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def arguments(description):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--mail-url", required=True)
     parser.add_argument("--project", required=True)
     args = parser.parse_args()
-    require(re.fullmatch(r"libra-m29-[a-f0-9]{12}", args.project), "Expected an isolated M29 project")
+    require(re.fullmatch(r"libra-m(29|30)-[a-f0-9]{12}", args.project), "Expected an isolated M29/M30 project")
+    return args
+
+
+def play(args):
+    """The M29 slice and its checks. Returns what later checks (M30) continue from."""
     for url in (args.base_url, args.mail_url):
         require(re.fullmatch(r"http://127\.0\.0\.1:[0-9]+", url), "Smoke URLs must be loopback")
     browser_endpoint = os.environ["MEDIA_S3_BROWSER_ENDPOINT"]
     require(re.fullmatch(r"http://127\.0\.0\.1:[0-9]+", browser_endpoint), "Storage endpoint must be loopback")
-    evidence = ROOT / "target/verification/media-m29.json"
-    evidence.unlink(missing_ok=True)
     shutil.rmtree(WORK, ignore_errors=True)
     WORK.mkdir(parents=True)
     compose = ["docker", "compose", "--project-name", args.project, "--profile", "full",
@@ -306,7 +309,17 @@ def main():
     require(viewer.ticket(session_id) != ticket, "Renewal reused the old ticket")
     require(stream(viewer, segments[-1])[0] == 200, "Renewed ticket does not play")
     passed("Renewal reissued the ticket cookie and the renewed ticket plays")
+    return {"viewer": viewer, "session_id": session_id, "stream_path": stream_path, "segments": segments,
+            "total": total, "master": master, "rendition": rendition, "register": register,
+            "content_id": content_id, "profile": profile}
 
+
+def main():
+    args = arguments(__doc__)
+    evidence = ROOT / "target/verification/media-m29.json"
+    evidence.unlink(missing_ok=True)
+    played = play(args)
+    segments, total = played["segments"], played["total"]
     evidence.parent.mkdir(parents=True, exist_ok=True)
     evidence.write_text(json.dumps({
         "result": "MEDIA_M29_SMOKE_PASS", "checkedAt": datetime.now(timezone.utc).isoformat(), "checks": CHECKS,

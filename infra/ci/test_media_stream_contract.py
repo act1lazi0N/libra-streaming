@@ -108,8 +108,30 @@ class MediaStreamContractTest(unittest.TestCase):
         self.assertIn("if ($request_method != GET) {", body)
         self.assertIn("if ($stream_body) {", body)
         # Every answer Nginx writes on these paths is a problem, whatever the name's extension.
-        self.assertEqual(4, nginx.count("types { }"))
+        self.assertEqual(6, nginx.count("types { }"))
         self.assertIn("Nginx", STREAMS["info"]["description"])
+
+    def test_ingress_forwards_nothing_of_media_but_its_health_and_the_stream_route(self):
+        nginx = (ROOT / "infra/nginx/nginx.conf").read_text(encoding="utf-8")
+        # Every location that forwards to Media, by its match; the stream route and health are the only two (M30).
+        blocks = dict(re.findall(r"\n        location ([^\n]+?) \{\n(.*?)\n        \}", nginx, re.S))
+        forwarding = [match for match, body in blocks.items() if "proxy_pass http://media_service" in body]
+        self.assertEqual(2, len(forwarding), forwarding)
+        health = re.compile(next(m for m in forwarding if "actuator" in m).split(" ", 1)[1].strip('"'))
+        for path in ("/api/media/actuator/health", "/api/media/actuator/health/liveness",
+                     "/api/media/actuator/health/readiness"):
+            self.assertIsNotNone(health.fullmatch(path), path)
+        for path in ("/api/media/actuator/info", "/api/media/actuator/health/", "/api/media/actuator/health/db",
+                     "/api/media/actuator/health;x=1", "/api/media/actuator/env"):
+            self.assertIsNone(health.fullmatch(path), path)
+        health_body = blocks[next(m for m in forwarding if "actuator" in m)]
+        self.assertIn("if ($request_method != GET) {", health_body)
+        self.assertIn("if ($stream_body) {", health_body)
+        # Everything else beneath /api/media/, and /api/media itself, is Nginx's 404 problem.
+        for match in ("/api/media/", "= /api/media"):
+            self.assertIn("return 404 '", blocks[match], match)
+            self.assertIn("types { }", blocks[match], match)
+        self.assertIn("Media's health", STREAMS["info"]["description"])
 
 
 if __name__ == "__main__":

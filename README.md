@@ -80,6 +80,12 @@ an administrator's upload becomes READY through Media's worker and Kafka, Core p
 Core-signed ticket plays the HLS through Nginx, which forwards only GETs of the exact stream route, never caches or spools it to
 disk, and bounds concurrent streams per playback session (4) and per client address (16) with the same retryable 503.
 `infra/smoke/check-media-m29.ps1` runs it with generated keys and removes everything it created.
+[Delivery abuse hardening](docs/media-protected-delivery-abuse-m30.md) narrows what Nginx forwards beneath
+`/api/media/` to Media's health (bodiless GET only) and the exact stream route, so no other spelling, such as a `;`
+parameter, an encoded backslash or another case, reaches Media around the stream limits; it answers any failure before
+the first byte with the 503 problem a player retries instead of the container's empty 403; and it shows through the
+stack that an expired Core ticket stops a presentation until a new admission, that no cache, validator or range lets a
+response be reused, and that players who hang up give their streams back. `infra/smoke/check-media-m30.ps1` runs it.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

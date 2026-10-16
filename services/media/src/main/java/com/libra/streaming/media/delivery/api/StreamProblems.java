@@ -3,7 +3,10 @@ package com.libra.streaming.media.delivery.api;
 import com.libra.streaming.media.delivery.application.StreamAdmission;
 import com.libra.streaming.media.delivery.application.StreamDelivery;
 import com.libra.streaming.media.delivery.application.StreamObjects;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -15,6 +18,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /** Stream failures before any byte is sent. No key, prefix, asset state or storage detail is ever reflected. */
 @RestControllerAdvice(assignableTypes = StreamController.class)
 public class StreamProblems {
+    private static final Logger LOG = LoggerFactory.getLogger(StreamProblems.class);
+
     @ExceptionHandler(StreamDelivery.NotFound.class)
     ResponseEntity<ProblemDetail> notFound(RuntimeException exception) {
         return response(HttpStatus.NOT_FOUND, "NOT_FOUND");
@@ -40,6 +45,20 @@ public class StreamProblems {
         var response = response(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UNAVAILABLE");
         return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders())
                 .header("Retry-After", "1").body(response.getBody());
+    }
+
+    /**
+     * Anything else raised before the response is committed (a defect, an unmapped library failure). Unhandled, the
+     * container's error dispatch is denied by Media's default chain and the player got an empty 403 (M30), which it
+     * never retries. After the commit, and for the deliberate abort, the exception is rethrown so the container still
+     * cuts the connection. Only the exception's type is logged: messages may carry keys or SQL.
+     */
+    @ExceptionHandler(RuntimeException.class)
+    ResponseEntity<ProblemDetail> unexpected(RuntimeException exception, HttpServletResponse servlet) {
+        if (exception instanceof StreamController.Interrupted || servlet.isCommitted()) { throw exception; }
+        LOG.warn("Unexpected stream failure before the first byte: {}", exception.getClass().getName());
+        servlet.reset();
+        return response(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UNAVAILABLE");
     }
 
     private static ResponseEntity<ProblemDetail> response(HttpStatus status, String code) {

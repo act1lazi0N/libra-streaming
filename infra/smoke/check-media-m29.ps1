@@ -5,17 +5,20 @@
 # No workstation .env or exported Compose variable takes part: Compose reads an empty env file, and every variable the
 # Compose files interpolate is cleared before the smoke sets its own. The disposable projects' containers, volumes,
 # networks and built images are removed afterwards, pass or fail.
-param([string]$Python = 'python')
+# -Milestone 30 adds the M30 path-abuse matrix to phase 1 and runs media_m30_http.py (the M29 slice, then M30's abuse,
+# cache and expiry checks) in phase 2; check-media-m30.ps1 passes it.
+param([string]$Python = 'python', [ValidateSet('29', '30')][string]$Milestone = '29')
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$project = 'libra-m29-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+$project = "libra-m$Milestone-" + [guid]::NewGuid().ToString('N').Substring(0, 12)
 $verification = Join-Path $repository 'target/verification'
 $emptyEnv = Join-Path $verification 'm29-empty.env'
 $compose = @('compose', '--project-name', $project, '--profile', 'full', '--env-file', $emptyEnv,
     '--file', (Join-Path $repository 'infra/compose.yaml'), '--file', (Join-Path $PSScriptRoot 'compose.media-m29.yaml'))
 $ingressCompose = @('compose', '--project-name', ($project + '-ingress'), '--env-file', $emptyEnv,
     '--file', (Join-Path $PSScriptRoot 'compose.ingress-m29.yaml'))
-$evidence = @((Join-Path $verification 'ingress-m29.json'), (Join-Path $verification 'media-m29.json'))
+$evidence = @((Join-Path $verification 'ingress-m29.json'), (Join-Path $verification "media-m$Milestone.json"))
+if ($Milestone -eq '30') { $evidence += Join-Path $verification 'ingress-m30.json' }
 # Every variable the Compose files interpolate, plus the smoke's own.
 $names = @('LIBRA_M29_ADMIN_PASSWORD', 'LIBRA_M29_ENV_FILE') + @(
     Get-Content -Raw (Join-Path $repository 'infra/compose.yaml'), (Join-Path $PSScriptRoot 'compose.media-m29.yaml') |
@@ -67,6 +70,10 @@ try {
         $address = (& docker @ingressCompose port nginx 80 | Select-Object -Last 1).Trim()
         & $Python infra/smoke/ingress_m29_limits.py --base-url "http://$address" --evidence $evidence[0]
         if ($LASTEXITCODE -ne 0) { throw 'M29 ingress limit check failed.' }
+        if ($Milestone -eq '30') {
+            & $Python infra/smoke/ingress_m30_paths.py --base-url "http://$address" --evidence $evidence[2]
+            if ($LASTEXITCODE -ne 0) { throw 'M30 ingress path check failed.' }
+        }
         & docker @ingressCompose stop media-stub
         if ($LASTEXITCODE -ne 0) { throw 'Could not stop the Media stand-in.' }
         & $Python infra/smoke/ingress_m29_limits.py --base-url "http://$address" --upstream-down
@@ -118,14 +125,16 @@ try {
     Invoke-Compose exec -T nginx nginx -t
     $ingress = (Invoke-Compose port nginx 80 | Select-Object -Last 1).Trim()
     $mail = (Invoke-Compose port mailpit 8025 | Select-Object -Last 1).Trim()
-    & $Python infra/smoke/media_m29_http.py --base-url "http://$ingress" --mail-url "http://$mail" --project $project
-    if ($LASTEXITCODE -ne 0) { throw 'M29 end-to-end playback smoke failed.' }
+    & $Python "infra/smoke/media_m$($Milestone)_http.py" --base-url "http://$ingress" --mail-url "http://$mail" `
+        --project $project
+    if ($LASTEXITCODE -ne 0) { throw "M$Milestone end-to-end playback smoke failed." }
 } catch {
     Remove-Evidence
     if ($started) {
         # Local, git-ignored diagnostics. Spring can echo a rejected property value, so treat this file as secret
         # material for the (already discarded) keys of this run.
-        & docker @compose logs --no-color core media 2>&1 | Out-File -Encoding utf8 (Join-Path $repository 'tmp/m29-smoke-services.log')
+        & docker @compose logs --no-color core media 2>&1 |
+            Out-File -Encoding utf8 (Join-Path $repository "tmp/m$Milestone-smoke-services.log")
     }
     throw
 } finally {

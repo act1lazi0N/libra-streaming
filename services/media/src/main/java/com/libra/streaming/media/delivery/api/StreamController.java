@@ -40,6 +40,12 @@ public class StreamController {
             try {
                 stream.transferTo(sink);
             } catch (StreamObjects.Unavailable | StreamDelivery.Expired broken) {
+                if (!response.isCommitted()) {
+                    // Nothing has reached the player: drop the prepared 200 and its length and answer the contract's
+                    // 503 problem. Left to the container, this became an empty 403 (M30), which a player never retries.
+                    response.reset();
+                    throw new StreamObjects.Unavailable();
+                }
                 // Headers are gone: only cutting the connection tells the player this body is incomplete.
                 throw new Interrupted();
             } catch (IOException clientGone) {
@@ -57,8 +63,8 @@ public class StreamController {
     }
 
     /**
-     * Storage failed, or the transfer timeout passed, after the response was committed; deliberately unhandled so the
-     * container aborts the response.
+     * Storage failed, or the transfer deadline passed, after the response was committed; deliberately unhandled so the
+     * container aborts the response. The same failure before the commit is the 503 problem instead.
      */
     static final class Interrupted extends RuntimeException {
         Interrupted() { super("STREAM_INTERRUPTED", null, false, false); }

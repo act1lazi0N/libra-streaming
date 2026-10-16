@@ -11,6 +11,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -95,6 +96,70 @@ class StreamControllerTest {
     }
 
     @Test
+    void storageFailingBeforeAnyByteReachedThePlayerIsTheProblemNotAnAbort() throws Exception {
+        // Nothing written, and one byte still in the container's buffer: neither has reached the player.
+        for (var written : List.of(new byte[0], new byte[]{0x47})) {
+            objects = key -> Optional.of(new StreamObjects.Opened() {
+                @Override public long length() { return 188; }
+                @Override public void transferTo(OutputStream sink) throws IOException {
+                    sink.write(written);
+                    throw new StreamObjects.Unavailable();
+                }
+                @Override public void close() {}
+            });
+            var mvc = mvc();
+            var result = expectProblem(mvc, get("/v1/streams/{session}/segment-00004.ts", session), 503,
+                    "MEDIA_UNAVAILABLE");
+            assertThat(result.getResponse().getHeader("Retry-After")).isNull();
+            // The buffered byte and the prepared 200's length are gone with it.
+            var body = result.getResponse().getContentAsString();
+            assertThat(body).startsWith("{");
+            assertThat(result.getResponse().getHeader("Content-Length")).isIn(null, Integer.toString(body.length()));
+            sessionSharesAreAllFree();
+        }
+    }
+
+    @Test
+    void anUnexpectedFailureBeforeTheFirstByteIsTheProblemAndOneAfterItStillAborts() throws Exception {
+        objects = key -> { throw new IllegalStateException("SELECT secret FROM hls/x"); };
+        var result = expectProblem(mvc(), get("/v1/streams/{session}/master.m3u8", session), 503, "MEDIA_UNAVAILABLE");
+        assertThat(result.getResponse().getHeader("Retry-After")).isNull();
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("IllegalState");
+        // Once bytes are out, an unexpected failure cuts the connection like a storage failure does.
+        objects = key -> Optional.of(body(new byte[]{0x47}, new IllegalStateException("late")));
+        assertThatThrownBy(() -> mvc().perform(get("/v1/streams/{session}/segment-00006.ts", session)))
+                .isInstanceOf(ServletException.class).cause().isInstanceOf(IllegalStateException.class);
+        sessionSharesAreAllFree();
+    }
+
+    @Test
+    void aDeadlinePassingBeforeTheFirstByteIsTheProblemNotAnAbort() throws Exception {
+        // The ticket expires (or the transfer timeout passes) while storage is still opening the object.
+        var moving = new java.util.concurrent.atomic.AtomicReference<>(Instant.parse("2026-10-16T09:00:00Z"));
+        clock = new Clock() {
+            @Override public java.time.ZoneId getZone() { return ZoneOffset.UTC; }
+            @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+            @Override public Instant instant() { return moving.get(); }
+        };
+        var released = new boolean[1];
+        objects = key -> {
+            moving.set(moving.get().plusSeconds(301));
+            return Optional.of(new StreamObjects.Opened() {
+                @Override public long length() { return 3; }
+                @Override public void transferTo(OutputStream sink) throws IOException {
+                    sink.write(new byte[]{0x47, 1, 2}, 0, 3);
+                }
+                @Override public void close() { released[0] = true; }
+            });
+        };
+        var result = expectProblem(mvc(), get("/v1/streams/{session}/segment-00005.ts", session), 503,
+                "MEDIA_UNAVAILABLE");
+        assertThat(result.getResponse().getHeader("Retry-After")).isNull();
+        assertThat(released[0]).isTrue();
+        sessionSharesAreAllFree();
+    }
+
+    @Test
     void aPlayerThatStopsReadingEndsTheRequestQuietlyAndTheObjectIsReleased() throws Exception {
         var released = new boolean[1];
         objects = key -> Optional.of(new StreamObjects.Opened() {
@@ -155,6 +220,7 @@ class StreamControllerTest {
             @Override public long length() { return 3; }
             @Override public void transferTo(OutputStream sink) throws IOException {
                 sink.write(new byte[]{0x47}, 0, 1);
+                sink.flush();
                 moving.set(moving.get().plusSeconds(60));
                 sink.write(new byte[]{1, 2}, 0, 2);
             }
@@ -215,7 +281,11 @@ class StreamControllerTest {
             @Override public long length() { return failAfter == null ? bytes.length : bytes.length + 10; }
             @Override public void transferTo(OutputStream sink) throws IOException {
                 sink.write(bytes);
-                if (failAfter != null) { throw failAfter; }
+                if (failAfter != null) {
+                    // The bytes reached the player (the response is committed) before the failure.
+                    sink.flush();
+                    throw failAfter;
+                }
             }
             @Override public void close() {}
         };

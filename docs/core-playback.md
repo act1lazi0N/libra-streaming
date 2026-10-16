@@ -75,8 +75,9 @@ Core sets `__Secure-LIBRA_PLAYBACK` as HttpOnly, Secure, SameSite=Lax, with no D
 and Path `/api/media/v1/streams/{sessionId}/`. Explicit loopback development uses
 `LIBRA_PLAYBACK` without Secure, following the existing identity cookie setting.
 The browser needs Core and Media behind the same ingress origin. The returned path
-is `/api/media/v1/streams/{sessionId}/master.m3u8`; Nginx's existing `/api/media/`
-mapping forwards it as `/v1/streams/{sessionId}/master.m3u8` to Media.
+is `/api/media/v1/streams/{sessionId}/master.m3u8`; Nginx's exact stream location
+forwards it as `/v1/streams/{sessionId}/master.m3u8` to Media (since M30 nothing else
+beneath `/api/media/` but Media's health is forwarded).
 
 Media must verify signature/algorithm/key ID, issuer, audience, purpose, required
 claims, strict expiry (including equality), maximum lifetime, session path and exact

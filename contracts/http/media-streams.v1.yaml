@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
   title: LIBRA Media protected HLS delivery
-  version: 1.2.0
+  version: 1.3.0
   description: >-
-    Delivered in M27, hardened in M28, served through the ingress in M29. Serves the master playlist, the rendition playlist and the
+    Delivered in M27, hardened in M28, served through the ingress in M29, its
+    paths, caching and expiry hardened in M30. Serves the master playlist, the rendition playlist and the
     MPEG-TS segments of the READY asset generation a Core playback ticket names.
     Core issues the ticket at playback admission and renewal (see
     core-playback.v1.yaml and docs/core-playback.md) as the cookie
@@ -15,7 +16,14 @@ info:
     Nginx that never reaches Media, a method other than GET is a 403
     ACCESS_DENIED problem and a request announcing a body (Content-Length or
     Transfer-Encoding) a 400 INVALID_REQUEST problem, both answered by Nginx
-    before any limit counts them. Nginx neither caches nor writes these
+    before any limit counts them. Beneath /api/media/ Nginx forwards nothing
+    but this route and Media's health (actuator/health, /liveness,
+    /readiness); every other target, including spellings Media's container
+    would itself normalise (a ;parameter, an encoded backslash, another case
+    or version), is the same 404 problem from Nginx. Spellings Nginx
+    normalises (percent-encoded unreserved characters, an encoded slash,
+    dot segments, repeated slashes) reach Media only as the canonical route,
+    under its limits. Media's health takes only a GET without a body. Nginx neither caches nor writes these
     responses to disk, and it bounds concurrent stream requests to 4 per
     playback session and 16 per peer address it sees (one address for every
     client behind a proxy or NAT) across all Media instances, answering an
@@ -57,11 +65,15 @@ paths:
         relative names in this vocabulary (master.m3u8 names rendition.m3u8,
         which names segment-NNNNN.ts), so a player resolves them beneath the same
         session path and its cookie. Responses are complete bodies with
-        Content-Length; Range is not supported. A storage failure after the body
+        Content-Length; Range is not supported: Range, If-Range and conditional
+        headers are ignored and the whole object is returned, without ETag,
+        Last-Modified or Accept-Ranges. A storage failure after the body
         has started aborts the connection instead of ending the body short, and
         so does a response that outlives the transfer timeout (60 s by default,
         counted from admission) or the ticket's exp because the player reads too
-        slowly.
+        slowly. The same failure, either deadline passing while storage
+        opens the object, or any unexpected failure before any byte has been
+        sent is the 503 MEDIA_UNAVAILABLE problem without Retry-After.
       parameters:
         - name: sessionId
           in: path
@@ -134,7 +146,8 @@ components:
         the instance's capacity) carries Retry-After: 1 and the player retries
         the same request; it is a 5xx, not a 429, because HLS players retry 5xx
         responses by default and give up on 4xx ones. A 503 caused by the
-        database or storage carries no Retry-After.
+        database or storage, or by the response's deadline passing before its
+        first byte, carries no Retry-After.
       headers:
         Retry-After:
           description: Seconds to wait before retrying; present when the refusal is a stream limit.
