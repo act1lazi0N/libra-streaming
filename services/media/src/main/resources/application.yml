@@ -49,6 +49,13 @@ libra:
       send-timeout: ${MEDIA_OUTBOX_SEND_TIMEOUT:10s}
       max-retry-delay: ${MEDIA_OUTBOX_MAX_RETRY_DELAY:5m}
       shutdown-timeout: ${MEDIA_OUTBOX_SHUTDOWN_TIMEOUT:10s}
+    lifecycle:
+      enabled: ${MEDIA_LIFECYCLE_ENABLED:false}
+      poll-interval: ${MEDIA_LIFECYCLE_POLL_INTERVAL:1m}
+      batch-size: ${MEDIA_LIFECYCLE_BATCH_SIZE:20}
+      write-grace: ${MEDIA_LIFECYCLE_WRITE_GRACE:1h}
+      max-objects-per-prefix: ${MEDIA_LIFECYCLE_MAX_OBJECTS_PER_PREFIX:1000}
+      shutdown-timeout: ${MEDIA_LIFECYCLE_SHUTDOWN_TIMEOUT:10s}
     probe:
       executable: ${MEDIA_FFPROBE_PATH:}
       timeout: ${MEDIA_FFPROBE_TIMEOUT:20s}

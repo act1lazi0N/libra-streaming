@@ -66,6 +66,7 @@ class UploadControlIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @Autowired com.libra.streaming.media.processing.application.JobLeases leases;
+    @Autowired com.libra.streaming.media.lifecycle.application.UploadExpiry expiry;
     @MockitoBean StagingInspector staging;
     @MockitoSpyBean UploadGrantSigner signer;
     MockMvc mvc;
@@ -115,6 +116,50 @@ class UploadControlIntegrationTest {
         assertThat(duplicate.getStatus()).isEqualTo(202);
         assertThat(mapper.readTree(duplicate.getContentAsString()).get("failureCode").asText()).isEqualTo("CORRUPT_INPUT");
         assertThat(count("media_jobs")).isEqualTo(1);
+    }
+
+    @Test void statusCarriesOnlyTheContractFieldsAndTheProcessingView() throws Exception {
+        var created = mapper.readTree(ensure(body(command.byteLength())).getResponse().getContentAsString());
+        assertThat(created.propertyNames()).containsExactlyInAnyOrder("uploadId", "contentId", "bindingId",
+                "assetId", "assetVersion", "uploadState", "assetState", "jobId", "attemptCount", "failureCode",
+                "expiresAt", "processing", "unsentEvents");
+        assertThat(created.get("processing").isNull()).isTrue();
+        assertThat(created.get("unsentEvents").asInt()).isZero();
+        assertThat(complete().getResponse().getStatus()).isEqualTo(202);
+        var lease = leases.claim(java.time.Duration.ofSeconds(30)).orElseThrow();
+        assertThat(leases.retry(lease, com.libra.streaming.media.processing.domain.ProcessingFailure.PROCESSING_FAILED,
+                java.time.Duration.ofMinutes(5))).isTrue();
+        var waiting = mapper.readTree(mvc.perform(get("/internal/v1/uploads/" + command.uploadId())
+                .header("Authorization", "Bearer " + token("core.media.uploads:read"))).andReturn()
+                .getResponse().getContentAsString());
+        assertThat(waiting.get("processing").propertyNames()).containsExactlyInAnyOrder("stage", "failureStage",
+                "failureCode", "retryAt");
+        assertThat(waiting.get("processing").get("stage").asText()).isEqualTo("QUEUED");
+        assertThat(waiting.get("processing").get("failureStage").asText()).isEqualTo("CLAIMED");
+        assertThat(waiting.get("processing").get("failureCode").asText()).isEqualTo("PROCESSING_FAILED");
+        assertThat(waiting.get("processing").get("retryAt").asText()).isNotBlank();
+        assertThat(waiting.get("failureCode").isNull()).isTrue();
+        assertThat(waiting.get("unsentEvents").asInt()).isEqualTo(1);
+    }
+
+    @Test void expiredUploadReportsTheContractStateAndRefusesEveryCommand() throws Exception {
+        ensure(body(command.byteLength()));
+        jdbc.update("UPDATE media_uploads SET created_at = now() - interval '2 hours', "
+                + "expires_at = now() - interval '1 hour' WHERE id = ?", command.uploadId());
+        assertThat(expiry.expire(10)).isEqualTo(1);
+        String path = "/internal/v1/uploads/" + command.uploadId();
+        mvc.perform(get(path).header("Authorization", "Bearer " + token("core.media.uploads:read")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.uploadState").value("EXPIRED"))
+                .andExpect(jsonPath("$.assetState").value("FAILED"))
+                .andExpect(jsonPath("$.failureCode").value("UPLOAD_EXPIRED"))
+                .andExpect(jsonPath("$.jobId").isEmpty()).andExpect(jsonPath("$.processing").isEmpty())
+                .andExpect(jsonPath("$.unsentEvents").value(1));
+        for (String command : new String[] {"/complete", "/upload-url"}) {
+            mvc.perform(post(path + command).header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                    .andExpect(status().isGone()).andExpect(jsonPath("$.code").value("UPLOAD_EXPIRED"));
+        }
+        assertThat(count("media_jobs")).isZero();
+        verifyNoInteractions(staging);
     }
 
     @Test void exactCandidateProvisionsOnceAndChangedIdentityConflicts() throws Exception {

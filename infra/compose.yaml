@@ -169,6 +169,8 @@ services:
       # The worker runs probe, transcode and finalization (M15-M24); without it an upload never leaves QUEUED.
       MEDIA_WORKER_ENABLED: ${MEDIA_WORKER_ENABLED:-true}
       MEDIA_OUTBOX_ENABLED: ${MEDIA_OUTBOX_ENABLED:-true}
+      # M31: expires abandoned uploads and deletes the objects settled uploads no longer select.
+      MEDIA_LIFECYCLE_ENABLED: ${MEDIA_LIFECYCLE_ENABLED:-true}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     read_only: true
     tmpfs:

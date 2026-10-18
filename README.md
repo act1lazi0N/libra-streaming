@@ -86,6 +86,12 @@ parameter, an encoded backslash or another case, reaches Media around the stream
 the first byte with the 503 problem a player retries instead of the container's empty 403; and it shows through the
 stack that an expired Core ticket stops a presentation until a new admission, that no cache, validator or range lets a
 response be reused, and that players who hang up give their streams back. `infra/smoke/check-media-m30.ps1` runs it.
+[Lifecycle cleanup](docs/media-lifecycle-cleanup-m31.md) expires abandoned uploads through the contract transition
+(`EXPIRED`, asset FAILED with its event), deletes the staging object and every unselected attempt's source and output
+of uploads that are settled (expired, or with a terminal job) once a write grace has passed, never a selected source or
+output and never by object age, and adds the job's stage, last failure and pending retry plus unsent events to the
+upload status (contracts 1.1.0; deploy Core first) and low-cardinality job, queue and cleanup gauges. The sweeper is off
+by default and on in Compose (`MEDIA_LIFECYCLE_ENABLED`).
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LIBRA Media private upload control
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     Implements private ensure, status read, signed upload URL issuance, and
     durable completion admission hardened in M14. The private Core service
@@ -10,7 +10,12 @@ info:
     purpose service-access, nonblank jti of at most 128 characters, iat and exp,
     zero leeway and at most 60 seconds lifetime. Upload control and
     playback/identity credentials are never interchangeable. Public ingress must
-    block /api/media/internal/ before these routes are enabled.
+    block /api/media/internal/ before these routes are enabled. 1.1.0 (M31)
+    adds the processing view and unsentEvents to MediaStatus, and Media now
+    expires an OPEN upload at its deadline itself (EXPIRED, asset FAILED with
+    its FAILED event). Core's client rejects unknown and missing fields, so a
+    1.0.0 peer and a 1.1.0 peer refuse each other's status in both directions:
+    Core and Media are deployed together.
 servers:
   - url: http://media:8082
 security:
@@ -171,7 +176,7 @@ components:
     MediaStatus:
       type: object
       additionalProperties: false
-      required: [uploadId, contentId, bindingId, assetId, assetVersion, uploadState, assetState, jobId, attemptCount, failureCode, expiresAt]
+      required: [uploadId, contentId, bindingId, assetId, assetVersion, uploadState, assetState, jobId, attemptCount, failureCode, expiresAt, processing, unsentEvents]
       properties:
         uploadId: { type: string, format: uuid }
         contentId: { type: string, format: uuid }
@@ -186,6 +191,37 @@ components:
           type: [string, 'null']
           enum: [null, UPLOAD_EXPIRED, SOURCE_MISSING, SIZE_MISMATCH, CHECKSUM_MISMATCH, UNSUPPORTED_MEDIA, CORRUPT_INPUT, PROCESSING_FAILED, RETRY_EXHAUSTED]
         expiresAt: { type: string, format: date-time }
+        processing:
+          description: >-
+            Added in 1.1.0 (M31). The job behind a submitted upload, null before
+            submission and for an expired upload. stage is the job's current stage;
+            failureStage and failureCode are its last recorded failure (a pending
+            retry, or the terminal failure), and retryAt is when a pending retry is
+            due. Values are fixed codes: never a key, lease, URL or exception text.
+            failureStage is null for a failure recorded before M31.
+          type: [object, 'null']
+          additionalProperties: false
+          required: [stage, failureStage, failureCode, retryAt]
+          properties:
+            stage: { type: string, enum: [QUEUED, CLAIMED, SOURCE_SELECTED, TRANSCODING, FINALIZING, SUCCEEDED, FAILED_PERMANENT, EXHAUSTED] }
+            failureStage:
+              type: [string, 'null']
+              enum: [null, CLAIMED, SOURCE_SELECTED, TRANSCODING, FINALIZING]
+            failureCode:
+              type: [string, 'null']
+              enum: [null, SOURCE_MISSING, SIZE_MISMATCH, CHECKSUM_MISMATCH, UNSUPPORTED_MEDIA, CORRUPT_INPUT, PROCESSING_FAILED, RETRY_EXHAUSTED]
+            retryAt: { type: [string, 'null'], format: date-time }
+          allOf:
+            - if: { properties: { failureStage: { type: string } } }
+              then: { properties: { failureCode: { type: string } } }
+            - if: { properties: { retryAt: { type: string } } }
+              then: { properties: { stage: { const: QUEUED }, failureCode: { type: string } } }
+        unsentEvents:
+          description: >-
+            Added in 1.1.0 (M31). MediaAssetStateChanged events of this asset
+            version that Media has recorded but Kafka has not yet acknowledged.
+          type: integer
+          minimum: 0
       allOf:
         - if: { properties: { uploadState: { const: OPEN } } }
           then:
@@ -194,11 +230,13 @@ components:
               jobId: { type: 'null' }
               attemptCount: { const: 0 }
               failureCode: { type: 'null' }
+              processing: { type: 'null' }
         - if: { properties: { uploadState: { const: SUBMITTED } } }
           then:
             properties:
               assetState: { enum: [QUEUED, PROCESSING, READY, FAILED] }
               jobId: { type: string, format: uuid }
+              processing: { type: object }
         - if: { properties: { uploadState: { const: EXPIRED } } }
           then:
             properties:
@@ -206,6 +244,7 @@ components:
               jobId: { type: 'null' }
               attemptCount: { const: 0 }
               failureCode: { const: UPLOAD_EXPIRED }
+              processing: { type: 'null' }
         - if: { properties: { assetState: { const: FAILED } } }
           then:
             properties:

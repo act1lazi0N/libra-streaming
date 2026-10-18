@@ -24,7 +24,7 @@ public class S3OutputStorage implements OutputStorage {
     public String prefix(JobLease lease) {
         var configured = properties.getIfAvailable();
         if (configured == null) { throw new Unavailable(); }
-        return configured.hlsPrefix() + lease.uploadId() + "/attempt-" + lease.attempt();
+        return MediaObjectKeys.outputPrefix(configured, lease.uploadId(), lease.attempt());
     }
 
     @Override

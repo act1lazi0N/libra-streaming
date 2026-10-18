@@ -74,7 +74,7 @@ class UploadProvisioningIntegrationTest {
             return new MediaControlModels.Result(new MediaControlModels.Status(uploadId, ensured.contentId(),
                     ensured.bindingId(), ensured.assetId(), ensured.assetVersion(),
                     MediaControlModels.UploadState.OPEN, MediaControlModels.AssetState.UPLOADING,
-                    null, 0, null, ensured.expiresAt()), null);
+                    null, 0, null, ensured.expiresAt(), null, 0), null);
         });
         assertThatThrownBy(() -> uploads.create(admin, movie.id(), command, correlation))
                 .isInstanceOf(DomainException.class).hasMessage("MEDIA_UNAVAILABLE");
@@ -99,7 +99,7 @@ class UploadProvisioningIntegrationTest {
             return new MediaControlModels.Result(new MediaControlModels.Status(uploadId, ensured.contentId(),
                     ensured.bindingId(), ensured.assetId(), ensured.assetVersion(),
                     MediaControlModels.UploadState.OPEN, MediaControlModels.AssetState.UPLOADING,
-                    null, 0, null, ensured.expiresAt()), null);
+                    null, 0, null, ensured.expiresAt(), null, 0), null);
         });
         var created = uploads.create(admin, movie.id(), command, correlation);
         assertThat(created.created()).isTrue();
@@ -274,7 +274,7 @@ class UploadProvisioningIntegrationTest {
         return new MediaControlModels.Result(new MediaControlModels.Status(uploadId, ensured.contentId(),
                 ensured.bindingId(), ensured.assetId(), ensured.assetVersion(),
                 MediaControlModels.UploadState.OPEN, MediaControlModels.AssetState.UPLOADING,
-                null, 0, null, ensured.expiresAt()), null);
+                null, 0, null, ensured.expiresAt(), null, 0), null);
     }
 
     private List<Object> race(Callable<Object> first, Callable<Object> second) throws Exception {

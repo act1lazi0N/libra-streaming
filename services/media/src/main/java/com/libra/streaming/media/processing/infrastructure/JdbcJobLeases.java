@@ -25,7 +25,7 @@ public class JdbcJobLeases implements JobLeases {
     public Optional<JobLease> claim(Duration lifetime) {
         timing(lifetime, Duration.ofMinutes(5));
         var candidates = jdbc.query("""
-                SELECT j.id, j.upload_id, j.attempt_count, u.asset_id, u.asset_version
+                SELECT j.id, j.upload_id, j.attempt_count, j.stage, u.asset_id, u.asset_version
                 FROM media_jobs j JOIN media_uploads u ON u.id = j.upload_id
                 WHERE (j.stage = 'QUEUED' AND j.next_attempt_at <= clock_timestamp())
                    OR (j.stage IN ('CLAIMED', 'SOURCE_SELECTED', 'TRANSCODING', 'FINALIZING')
@@ -33,11 +33,13 @@ public class JdbcJobLeases implements JobLeases {
                 ORDER BY j.next_attempt_at, j.created_at, j.id
                 LIMIT 1 FOR UPDATE OF j SKIP LOCKED
                 """, (rs, row) -> new Candidate(rs.getObject("id", UUID.class), rs.getObject("upload_id", UUID.class),
-                rs.getObject("asset_id", UUID.class), rs.getLong("asset_version"), rs.getInt("attempt_count")));
+                rs.getObject("asset_id", UUID.class), rs.getLong("asset_version"), rs.getInt("attempt_count"),
+                rs.getString("stage")));
         if (candidates.isEmpty()) { return Optional.empty(); }
         var current = candidates.getFirst();
         Instant now = now();
         if (current.attempt() == 3) {
+            // A last attempt whose lease ran out failed in its own stage.
             terminal(current, "EXHAUSTED", "RETRY_EXHAUSTED", now);
             return Optional.empty();
         }
@@ -45,7 +47,8 @@ public class JdbcJobLeases implements JobLeases {
         Instant expiry = now.plus(lifetime);
         jdbc.update("""
                 UPDATE media_jobs SET stage = 'CLAIMED', attempt_count = attempt_count + 1,
-                    lease_token = ?, lease_until = ?, failure_code = NULL, updated_at = ? WHERE id = ?
+                    lease_token = ?, lease_until = ?, failure_code = NULL, failure_stage = NULL, updated_at = ?
+                WHERE id = ?
                 """, token, Timestamp.from(expiry), Timestamp.from(now), current.jobId());
         // Only the first claim is a visible transition; a retry claim of a PROCESSING asset emits nothing.
         int started = jdbc.update("""
@@ -90,9 +93,9 @@ public class JdbcJobLeases implements JobLeases {
         Instant now = lockCurrent(lease);
         if (now == null) { return false; }
         if (lease.attempt() == 3) {
-            terminal(candidate(lease), "EXHAUSTED", "RETRY_EXHAUSTED", now);
+            terminal(candidate(lease, stage(lease)), "EXHAUSTED", "RETRY_EXHAUSTED", now);
         } else {
-            requeue(lease, now, now, null);
+            requeue(lease, now, now, null, null);
         }
         return true;
     }
@@ -101,30 +104,38 @@ public class JdbcJobLeases implements JobLeases {
         java.util.Objects.requireNonNull(failure);
         Instant now = lockCurrent(lease);
         if (now == null) { return false; }
+        String stage = stage(lease);
         if (permanent || lease.attempt() == 3) {
-            terminal(candidate(lease), permanent ? "FAILED_PERMANENT" : "EXHAUSTED",
+            terminal(candidate(lease, stage), permanent ? "FAILED_PERMANENT" : "EXHAUSTED",
                     permanent ? failure.name() : "RETRY_EXHAUSTED", now);
         } else {
-            requeue(lease, now, now.plus(delay), failure.name());
+            requeue(lease, now, now.plus(delay), failure.name(), stage);
         }
         return true;
     }
 
     private Instant lockCurrent(JobLease lease) { return LeaseFence.lockCurrent(jdbc, lease); }
 
-    private void requeue(JobLease lease, Instant now, Instant due, String reason) {
+    /** The active stage of a lease this transaction has just locked; the stage the failure happened in. */
+    private String stage(JobLease lease) {
+        return jdbc.queryForObject("SELECT stage FROM media_jobs WHERE id = ?", String.class, lease.jobId());
+    }
+
+    private void requeue(JobLease lease, Instant now, Instant due, String reason, String stage) {
         jdbc.update("""
                 UPDATE media_jobs SET stage = 'QUEUED', lease_token = NULL, lease_until = NULL,
-                    next_attempt_at = ?, failure_code = ?, updated_at = ? WHERE id = ?
-                """, Timestamp.from(due), reason, Timestamp.from(now), lease.jobId());
+                    next_attempt_at = ?, failure_code = ?, failure_stage = ?, updated_at = ? WHERE id = ?
+                """, Timestamp.from(due), reason, stage, Timestamp.from(now), lease.jobId());
         // A retry remains PROCESSING to avoid exposing an editorial state regression.
     }
 
     private void terminal(Candidate current, String stage, String reason, Instant now) {
+        // Defensive: a queued job has no stage of its own, so it would keep the one its last failure recorded.
+        String failed = "QUEUED".equals(current.stage()) ? null : current.stage();
         jdbc.update("""
                 UPDATE media_jobs SET stage = ?, lease_token = NULL, lease_until = NULL,
-                    failure_code = ?, updated_at = ? WHERE id = ?
-                """, stage, reason, Timestamp.from(now), current.jobId());
+                    failure_code = ?, failure_stage = COALESCE(?, failure_stage), updated_at = ? WHERE id = ?
+                """, stage, reason, failed, Timestamp.from(now), current.jobId());
         int changed = jdbc.update("""
                 UPDATE media_assets SET state = 'FAILED', updated_at = ?
                 WHERE asset_id = ? AND asset_version = ? AND state IN ('QUEUED', 'PROCESSING')
@@ -135,13 +146,14 @@ public class JdbcJobLeases implements JobLeases {
     }
 
     private Instant now() { return jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant(); }
-    private static Candidate candidate(JobLease lease) {
-        return new Candidate(lease.jobId(), lease.uploadId(), lease.assetId(), lease.assetVersion(), lease.attempt());
+    private static Candidate candidate(JobLease lease, String stage) {
+        return new Candidate(lease.jobId(), lease.uploadId(), lease.assetId(), lease.assetVersion(), lease.attempt(),
+                stage);
     }
     private static void timing(Duration value, Duration max) {
         if (value == null || value.toMillis() < 1 || value.compareTo(max) > 0) {
             throw new IllegalArgumentException("Invalid job timing");
         }
     }
-    private record Candidate(UUID jobId, UUID uploadId, UUID assetId, long assetVersion, int attempt) {}
+    private record Candidate(UUID jobId, UUID uploadId, UUID assetId, long assetVersion, int attempt, String stage) {}
 }

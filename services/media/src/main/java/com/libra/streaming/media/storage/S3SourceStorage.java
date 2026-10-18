@@ -36,7 +36,7 @@ public class S3SourceStorage implements SourceStorage, SourceReader {
         var configured = properties.getIfAvailable();
         if (configured == null) { throw new Unavailable(); }
         // The attempt number makes a late object from an old claim unable to share the selected key.
-        return configured.sourcePrefix() + lease.uploadId() + "/attempt-" + lease.attempt() + "/source.mp4";
+        return MediaObjectKeys.sourceKey(configured, lease.uploadId(), lease.attempt());
     }
 
     @Override

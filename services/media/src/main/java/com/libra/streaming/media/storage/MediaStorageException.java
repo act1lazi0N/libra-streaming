@@ -8,6 +8,11 @@ final class MediaStorageException extends RuntimeException {
         super(code);
     }
 
+    /** A listing that returned a key the request could not have matched; nothing from it is trusted. */
+    static MediaStorageException unexpectedListing() {
+        return new MediaStorageException("MEDIA_STORAGE_UNEXPECTED_LISTING");
+    }
+
     static MediaStorageException from(RuntimeException failure) {
         return new MediaStorageException(failure instanceof S3Exception s3
                 && (s3.statusCode() == 401 || s3.statusCode() == 403)

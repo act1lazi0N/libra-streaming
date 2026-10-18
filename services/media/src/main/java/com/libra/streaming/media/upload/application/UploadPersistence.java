@@ -16,12 +16,19 @@ public interface UploadPersistence {
 
     record UploadSnapshot(UUID uploadId, UUID requestId, UUID contentId, UUID bindingId, UUID assetId,
             long assetVersion, long byteLength, String sha256, String uploadState, String assetState,
-            UUID jobId, int attemptCount, String failureCode, Instant expiresAt) {
+            UUID jobId, int attemptCount, String failureCode, Instant expiresAt, Processing processing,
+            long unsentEvents) {
         public UploadDescriptor command() {
             return new UploadDescriptor(uploadId, requestId, contentId, bindingId, assetId,
                     assetVersion, byteLength, sha256, expiresAt);
         }
     }
+
+    /**
+     * The job behind a submitted upload, null before submission: its stage, the stage and code of its last recorded
+     * failure (a pending retry or the terminal one), and when a pending retry is due.
+     */
+    record Processing(String stage, String failureStage, String failureCode, Instant retryAt) {}
 
     record UploadSource(UploadSnapshot snapshot, String stagingKey) {}
 }

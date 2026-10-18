@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
@@ -18,6 +19,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
@@ -206,6 +208,37 @@ final class S3MediaStorage implements AutoCloseable {
         } catch (SdkException failure) { throw MediaStorageException.from(failure); }
     }
 
+    /**
+     * At most {@code limit} keys under one directory-like {@code prefix} (ending in "/") of an area, and whether the
+     * listing was exhausted. Every returned key is checked to be under the prefix, so a misbehaving server cannot
+     * widen what a caller deletes.
+     */
+    Listing list(Area area, String prefix, int limit) {
+        if (prefix == null || !prefix.endsWith("/") || limit < 1 || limit > 1000) {
+            throw new IllegalArgumentException("Invalid media object listing");
+        }
+        var location = location(area, prefix.substring(0, prefix.length() - 1));
+        try {
+            var response = client.listObjectsV2(ListObjectsV2Request.builder().bucket(location.bucket())
+                    .prefix(prefix).maxKeys(limit).build());
+            var keys = response.contents().stream().map(object -> object.key()).toList();
+            if (keys.size() > limit || !keys.stream().allMatch(key -> under(area, prefix, key))) {
+                throw MediaStorageException.unexpectedListing();
+            }
+            return new Listing(keys, !Boolean.TRUE.equals(response.isTruncated()));
+        } catch (SdkException failure) { throw MediaStorageException.from(failure); }
+    }
+
+    private boolean under(Area area, String prefix, String key) {
+        if (key == null || !key.startsWith(prefix) || key.length() == prefix.length()) { return false; }
+        try {
+            location(area, key);
+            return true;
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
+    }
+
     private Location location(Area area, String key) {
         if (area == null || key == null || key.length() > 512 || key.contains("//")
                 || !key.matches("[A-Za-z0-9][A-Za-z0-9._/-]*")) {
@@ -228,6 +261,7 @@ final class S3MediaStorage implements AutoCloseable {
     }
 
     record ObjectMetadata(long length, String contentType) {}
+    record Listing(List<String> keys, boolean exhausted) {}
     /** Bytes actually read and the SHA-256 of exactly those bytes; the value is the scratch file, when any. */
     record Measured<T>(T value, long length, String sha256) {}
     private record Location(String bucket, String key) {}

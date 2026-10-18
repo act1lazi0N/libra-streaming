@@ -1,14 +1,15 @@
 openapi: 3.1.0
 info:
   title: LIBRA Core administrator media uploads
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     M11 implements create-upload, status read and signed upload URL issuance.
     Completion remains planned. Core owns administrator authorization, catalog version,
     upload intent and candidate binding. A live
     ADMIN cookie is required; every POST also needs the masked CSRF token and
     matching cookie. Responses are no-store. Media readiness and publication
-    are separate; see docs/media-first-slice-contracts.md.
+    are separate; see docs/media-first-slice-contracts.md. 1.1.0 (M31) relays
+    Media's processing view and unsentEvents unchanged.
 servers:
   - url: http://localhost:8081
   - url: http://localhost:8080/api/core
@@ -167,7 +168,7 @@ components:
     UploadStatus:
       type: object
       additionalProperties: false
-      required: [uploadId, contentId, bindingId, assetId, assetVersion, catalogVersionAtReservation, uploadState, assetState, jobId, attemptCount, failureCode, expiresAt]
+      required: [uploadId, contentId, bindingId, assetId, assetVersion, catalogVersionAtReservation, uploadState, assetState, jobId, attemptCount, failureCode, expiresAt, processing, unsentEvents]
       properties:
         uploadId: { type: string, format: uuid }
         contentId: { type: string, format: uuid }
@@ -183,6 +184,37 @@ components:
           type: [string, 'null']
           enum: [null, UPLOAD_EXPIRED, SOURCE_MISSING, SIZE_MISMATCH, CHECKSUM_MISMATCH, UNSUPPORTED_MEDIA, CORRUPT_INPUT, PROCESSING_FAILED, RETRY_EXHAUSTED]
         expiresAt: { type: string, format: date-time }
+        processing:
+          description: >-
+            Added in 1.1.0 (M31). The job behind a submitted upload, null before
+            submission and for an expired upload. stage is the job's current stage;
+            failureStage and failureCode are its last recorded failure (a pending
+            retry, or the terminal failure), and retryAt is when a pending retry is
+            due. Values are fixed codes: never a key, lease, URL or exception text.
+            failureStage is null for a failure recorded before M31.
+          type: [object, 'null']
+          additionalProperties: false
+          required: [stage, failureStage, failureCode, retryAt]
+          properties:
+            stage: { type: string, enum: [QUEUED, CLAIMED, SOURCE_SELECTED, TRANSCODING, FINALIZING, SUCCEEDED, FAILED_PERMANENT, EXHAUSTED] }
+            failureStage:
+              type: [string, 'null']
+              enum: [null, CLAIMED, SOURCE_SELECTED, TRANSCODING, FINALIZING]
+            failureCode:
+              type: [string, 'null']
+              enum: [null, SOURCE_MISSING, SIZE_MISMATCH, CHECKSUM_MISMATCH, UNSUPPORTED_MEDIA, CORRUPT_INPUT, PROCESSING_FAILED, RETRY_EXHAUSTED]
+            retryAt: { type: [string, 'null'], format: date-time }
+          allOf:
+            - if: { properties: { failureStage: { type: string } } }
+              then: { properties: { failureCode: { type: string } } }
+            - if: { properties: { retryAt: { type: string } } }
+              then: { properties: { stage: { const: QUEUED }, failureCode: { type: string } } }
+        unsentEvents:
+          description: >-
+            Added in 1.1.0 (M31). MediaAssetStateChanged events of this asset
+            version that Media has recorded but Kafka has not yet acknowledged.
+          type: integer
+          minimum: 0
       allOf:
         - if: { properties: { uploadState: { const: OPEN } } }
           then:
@@ -191,11 +223,13 @@ components:
               jobId: { type: 'null' }
               attemptCount: { const: 0 }
               failureCode: { type: 'null' }
+              processing: { type: 'null' }
         - if: { properties: { uploadState: { const: SUBMITTED } } }
           then:
             properties:
               assetState: { enum: [QUEUED, PROCESSING, READY, FAILED] }
               jobId: { type: string, format: uuid }
+              processing: { type: object }
         - if: { properties: { uploadState: { const: EXPIRED } } }
           then:
             properties:
@@ -203,6 +237,7 @@ components:
               jobId: { type: 'null' }
               attemptCount: { const: 0 }
               failureCode: { const: UPLOAD_EXPIRED }
+              processing: { type: 'null' }
         - if: { properties: { assetState: { const: FAILED } } }
           then:
             properties:

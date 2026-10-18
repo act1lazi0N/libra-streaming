@@ -14,13 +14,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * <p>The row holds the contract payload; the envelope (event ID, type, schema version, aggregate ID and version,
  * occurrence time and correlation ID) is in its columns. The correlation ID is the upload's immutable request ID.
  */
-final class MediaAssetEvents {
-    enum State { PROCESSING, READY, FAILED }
+public final class MediaAssetEvents {
+    public enum State { PROCESSING, READY, FAILED }
 
     private MediaAssetEvents() {}
 
     /** Returns the new aggregate version. {@code durationSeconds} is required for READY and absent otherwise. */
-    static long append(JdbcTemplate jdbc, UUID assetId, long assetVersion, State state, Integer durationSeconds,
+    public static long append(JdbcTemplate jdbc, UUID assetId, long assetVersion, State state, Integer durationSeconds,
             Instant now) {
         if ((state == State.READY) != (durationSeconds != null)) {
             throw new IllegalArgumentException("READY and only READY carries a duration");

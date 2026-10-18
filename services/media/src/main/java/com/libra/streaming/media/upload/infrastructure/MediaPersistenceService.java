@@ -58,6 +58,7 @@ public class MediaPersistenceService {
     @Transactional(readOnly = true)
     public GrantSource grantSource(UUID uploadId) {
         Snapshot current = read(uploadId);
+        if (current.uploadState().equals("EXPIRED")) { throw new UploadFailure("UPLOAD_EXPIRED"); }
         if (!current.uploadState().equals("OPEN") || !current.assetState().equals("UPLOADING")) {
             throw new UploadFailure("UPLOAD_STATE_CONFLICT");
         }
@@ -87,6 +88,10 @@ public class MediaPersistenceService {
 
     public record Snapshot(UUID uploadId, UUID requestId, UUID contentId, UUID bindingId, UUID assetId,
             long assetVersion, long byteLength, String sha256, String fingerprint,
-            String uploadState, String assetState, UUID jobId, int attemptCount, String failureCode, Instant expiresAt) {}
+            String uploadState, String assetState, UUID jobId, int attemptCount, String failureCode, Instant expiresAt,
+            Processing processing, long unsentEvents) {}
+
+    /** The job as an operator sees it: its stage, its last recorded failure and when a retry is due. */
+    public record Processing(String stage, String failureStage, String failureCode, Instant retryAt) {}
     public record GrantSource(Snapshot snapshot, String stagingKey) {}
 }

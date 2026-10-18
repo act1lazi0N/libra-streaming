@@ -113,7 +113,8 @@ public class UploadProvisioningService {
         }
         return new UploadStatus(intent.uploadId(), intent.contentId(), intent.bindingId(), intent.assetId(),
                 intent.assetVersion(), intent.catalogVersionAtReservation(), media.uploadState(),
-                media.assetState(), media.jobId(), media.attemptCount(), media.failureCode(), intent.expiresAt());
+                media.assetState(), media.jobId(), media.attemptCount(), media.failureCode(), intent.expiresAt(),
+                media.processing(), media.unsentEvents());
     }
 
     public record Create(UUID requestId, long expectedVersion, long byteLength, String sha256) {}
@@ -121,5 +122,6 @@ public class UploadProvisioningService {
     public record UploadStatus(UUID uploadId, UUID contentId, UUID bindingId, UUID assetId,
             long assetVersion, long catalogVersionAtReservation, MediaControlModels.UploadState uploadState,
             MediaControlModels.AssetState assetState, UUID jobId, int attemptCount,
-            MediaControlModels.FailureCode failureCode, Instant expiresAt) {}
+            MediaControlModels.FailureCode failureCode, Instant expiresAt, MediaControlModels.Processing processing,
+            long unsentEvents) {}
 }
