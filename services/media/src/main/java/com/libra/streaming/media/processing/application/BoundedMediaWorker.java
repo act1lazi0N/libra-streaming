@@ -3,10 +3,12 @@ package com.libra.streaming.media.processing.application;
 import com.libra.streaming.media.processing.domain.JobLease;
 import com.libra.streaming.media.processing.domain.ProcessingFailure;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /** One synchronous handler slot, one heartbeat slot, and no in-memory job backlog. */
@@ -39,18 +41,23 @@ public final class BoundedMediaWorker implements AutoCloseable {
     private void poll() {
         if (!running.get()) { return; }
         try {
-            leases.claim(settings.leaseDuration()).ifPresent(this::process);
+            var asked = Validity.from(settings.leaseDuration());
+            leases.claim(settings.leaseDuration()).ifPresent(lease -> process(lease, asked));
         } catch (RuntimeException exception) {
             report.accept("WORKER_DATABASE_UNAVAILABLE");
         }
     }
 
-    private void process(JobLease lease) {
+    private void process(JobLease lease, Validity claimed) {
         if (!running.get()) {
             leases.release(lease);
             return;
         }
         var lost = new AtomicBoolean();
+        // M32: what this process itself knows of the lease. The heartbeat can be stuck in a renewal, or paused with
+        // the whole process, and never report the loss; once the lease duration has passed since the last claim or
+        // renewal the database confirmed, a successor may own the job, so the handler must not write again.
+        var valid = new AtomicReference<>(claimed);
         var active = new AtomicBoolean(true);
         Object renewalGate = new Object();
         Thread owner = Thread.currentThread();
@@ -58,7 +65,11 @@ public final class BoundedMediaWorker implements AutoCloseable {
             synchronized (renewalGate) {
                 if (!active.get() || lost.get() || !running.get()) { return; }
                 try {
-                    if (leases.renew(lease, settings.leaseDuration())) { return; }
+                    var asked = Validity.from(settings.leaseDuration());
+                    if (leases.renew(lease, settings.leaseDuration())) {
+                        valid.set(asked);
+                        return;
+                    }
                 } catch (RuntimeException exception) {
                     report.accept("WORKER_LEASE_UNAVAILABLE");
                 }
@@ -70,16 +81,16 @@ public final class BoundedMediaWorker implements AutoCloseable {
         try {
             MediaJobHandler.Outcome outcome;
             try {
-                outcome = handler.process(lease, () -> !running.get() || lost.get());
+                outcome = handler.process(lease, () -> !running.get() || lapsed(lost, valid));
                 if (outcome == null) { outcome = MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED); }
             } catch (InterruptedException exception) {
-                if (!running.get() || lost.get()) { return; }
+                if (!running.get() || lapsed(lost, valid)) { return; }
                 outcome = MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED);
             } catch (RuntimeException exception) {
                 outcome = MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED);
             }
             synchronized (renewalGate) {
-                if (!running.get() || lost.get()) { return; }
+                if (!running.get() || lapsed(lost, valid)) { return; }
                 // Finish any in-flight renewal before finalization. A late heartbeat cannot interrupt the next job.
                 active.set(false);
                 finalized = true;
@@ -97,6 +108,26 @@ public final class BoundedMediaWorker implements AutoCloseable {
                 if (!finalized && !running.get() && !lost.get()) { leases.release(lease); }
             }
         }
+    }
+
+    /** True once the lease is known lost or may have lapsed; a lapse is recorded as a loss. */
+    private static boolean lapsed(AtomicBoolean lost, AtomicReference<Validity> valid) {
+        if (lost.get()) { return true; }
+        if (valid.get().passed()) { lost.set(true); }
+        return lost.get();
+    }
+
+    /**
+     * How long a lease is certainly still held: the lease duration measured from just before the database was asked,
+     * so it never ends later than the database's own expiry. Both a monotonic and a wall clock are kept, because the
+     * monotonic clock may not advance while the host is suspended; either one passing ends the validity.
+     */
+    private record Validity(long monotonicUntil, Instant wallUntil) {
+        static Validity from(Duration lease) {
+            return new Validity(System.nanoTime() + lease.toNanos(), Instant.now().plus(lease));
+        }
+
+        boolean passed() { return System.nanoTime() - monotonicUntil >= 0 || !Instant.now().isBefore(wallUntil); }
     }
 
     @Override

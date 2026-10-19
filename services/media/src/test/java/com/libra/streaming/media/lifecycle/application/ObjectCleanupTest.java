@@ -66,10 +66,40 @@ class ObjectCleanupTest {
     void aSelectedOutputOverlappingAnAttemptPrefixIsNeverDeleted() {
         storage.objects.add(output(1) + "/selected/master.m3u8");
         var cleanup = new ObjectCleanup(storage, plans, events, 100);
-        // A selection that is not an attempt prefix itself (a bug elsewhere) still protects what lies under it.
-        cleanup.clean(new CleanupPlan(upload, "staging/" + upload + "/source.mp4", 1, null, output(1) + "/selected"));
-        cleanup.clean(new CleanupPlan(upload, "staging/" + upload + "/source.mp4", 1, null, "hls/" + upload));
+        // A selection that is not an attempt prefix itself (a bug elsewhere, or a changed layout) refuses the whole
+        // plan before anything is touched (M32), so what lies under it is never even listed.
+        for (String selected : List.of(output(1) + "/selected", "hls/" + upload)) {
+            assertThatThrownBy(() -> cleanup.clean(new CleanupPlan(upload, "staging/" + upload + "/source.mp4", 1,
+                    null, selected))).isInstanceOf(ObjectCleanup.LayoutChanged.class);
+        }
         assertThat(storage.objects).containsExactly(output(1) + "/selected/master.m3u8");
+        assertThat(storage.touched).isEmpty();
+    }
+
+    @Test
+    void aSelectionTodaysLayoutDoesNotNameRefusesThePlanAndTheSweeperMovesOn() {
+        // As after a source or HLS prefix change: the recorded selection lies elsewhere, so the derived keys would
+        // find nothing and the upload would be recorded clean while its objects remain.
+        var other = UUID.randomUUID();
+        storage.objects.addAll(List.of("frozen/" + upload + "/attempt-1/source.mp4",
+                "staging/" + other + "/source.mp4"));
+        var cleanup = new ObjectCleanup(storage, plans, events, 100);
+        var moved = new CleanupPlan(upload, "staging/" + upload + "/source.mp4", 2,
+                "frozen/" + upload + "/attempt-1/source.mp4", null);
+        assertThatThrownBy(() -> cleanup.clean(moved)).isInstanceOf(ObjectCleanup.LayoutChanged.class)
+                .hasMessage("CLEANUP_LAYOUT_CHANGED");
+        assertThatThrownBy(() -> cleanup.clean(new CleanupPlan(upload, "staging/" + upload + "/source.mp4", 2,
+                source(2), "media/" + upload + "/attempt-2"))).isInstanceOf(ObjectCleanup.LayoutChanged.class);
+        assertThat(storage.touched).isEmpty();
+
+        plans.due = List.of(moved, new CleanupPlan(other, "staging/" + other + "/source.mp4", 0, null, null));
+        var sweeper = new LifecycleSweeper(limit -> 0, plans, cleanup, events, new LifecycleSweeper.Settings(
+                Duration.ofSeconds(1), 20, Duration.ofMinutes(5), Duration.ofSeconds(1)));
+        sweeper.pass();
+        assertThat(events.failures).containsExactly("CLEANUP_LAYOUT_CHANGED");
+        assertThat(storage.objects).containsExactly("frozen/" + upload + "/attempt-1/source.mp4");
+        assertThat(plans.cleaned).isEmpty();
+        sweeper.close();
     }
 
     @Test

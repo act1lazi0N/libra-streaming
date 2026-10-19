@@ -2,8 +2,7 @@ package com.libra.streaming.media.lifecycle.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -12,12 +11,14 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCreator;
+import org.springframework.jdbc.core.ResultSetExtractor;
 
 class LifecycleMetricsTest {
     @Test
     void anUnreadableDatabaseIsNaNNeverZero() {
         var jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), eq(Number.class)))
+        when(jdbc.query(any(PreparedStatementCreator.class), any(ResultSetExtractor.class)))
                 .thenThrow(new DataAccessResourceFailureException("connection refused to db.internal:5432"));
         var registry = new SimpleMeterRegistry();
         new LifecycleMetrics(jdbc, registry);

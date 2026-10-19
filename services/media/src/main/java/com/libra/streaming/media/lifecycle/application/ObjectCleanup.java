@@ -29,6 +29,7 @@ public final class ObjectCleanup {
 
     /** Returns the number of objects this pass found and deleted; zero means the upload is now recorded as cleaned. */
     public int clean(CleanupPlan plan) {
+        requireRecordedLayout(plan);
         int found = storage.deleteStaging(plan.stagingKey()) ? 1 : 0;
         boolean remaining = false;
         for (int attempt = 1; attempt <= plan.attempts(); attempt++) {
@@ -45,7 +46,31 @@ public final class ObjectCleanup {
         return remaining ? Math.max(found, 1) : found;
     }
 
-    /** The selected output, or a prefix containing it or contained in it, is never deleted. */
+    /**
+     * Only the selection is recorded as keys; every other key is named from today's layout. A selection today's layout
+     * does not name means the layout changed (M32): the derived keys point elsewhere, so a pass would find nothing and
+     * record an upload whose objects remain. Nothing is deleted or recorded for such a plan. A plan without a selection
+     * cannot show a change; the layout check at startup (V9) is what keeps those keys where the attempts wrote them.
+     */
+    private void requireRecordedLayout(CleanupPlan plan) {
+        boolean source = plan.selectedSourceKey() == null;
+        boolean output = plan.selectedOutputPrefix() == null;
+        for (int attempt = 1; attempt <= plan.attempts(); attempt++) {
+            source |= storage.sourceKey(plan.uploadId(), attempt).equals(plan.selectedSourceKey());
+            output |= storage.outputPrefix(plan.uploadId(), attempt).equals(plan.selectedOutputPrefix());
+        }
+        if (!source || !output) { throw new LayoutChanged(); }
+    }
+
+    /** The plan's selection is not where today's layout names its keys; deliberately carries no key. */
+    public static final class LayoutChanged extends RuntimeException {
+        LayoutChanged() { super("CLEANUP_LAYOUT_CHANGED", null, false, false); }
+    }
+
+    /**
+     * The selected output, or a prefix containing it or contained in it, is never deleted. Defensive since M32: a plan
+     * reaches this only when its selection equals one attempt prefix.
+     */
     private static boolean overlaps(String prefix, String selected) {
         return selected != null && (prefix.equals(selected) || prefix.startsWith(selected + "/")
                 || selected.startsWith(prefix + "/"));

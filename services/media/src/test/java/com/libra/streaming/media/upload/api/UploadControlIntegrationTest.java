@@ -31,6 +31,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -52,6 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Production Media filters and PostgreSQL, with an authenticated loopback Core binding fixture. */
 @Testcontainers
+@ExtendWith(OutputCaptureExtension.class)
 @SpringBootTest(properties = "libra.media.storage.enabled=false")
 class UploadControlIntegrationTest {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18.6-alpine")
@@ -323,6 +327,37 @@ class UploadControlIntegrationTest {
         }
         assertThat(complete().getResponse().getStatus()).isEqualTo(202);
         assertThat(count("media_jobs")).isEqualTo(1);
+    }
+
+    @Test void anUnexpectedFailureIsASanitizedProblemNotAContainerError(CapturedOutput output) throws Exception {
+        // M32: an exception no handler names (a library bug, a wrapped driver error) used to leave the controller,
+        // reach the container's error logging with its message and cause chain, and give Core an empty response.
+        ensure(body(command.byteLength()));
+        int logStart = output.getAll().length();
+        String detail = "jdbc:postgresql://db.internal/media?password=leak "
+                + "https://storage.internal/libra-source/staging/x?X-Amz-Signature=leak";
+        doThrow(new IllegalStateException(detail, new RuntimeException(detail))).when(staging).requireComplete(any());
+        var result = mvc.perform(post("/internal/v1/uploads/" + command.uploadId() + "/complete")
+                        .header("Authorization", "Bearer " + token("core.media.uploads:write")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("MEDIA_UNAVAILABLE"))
+                .andExpect(header().string("Cache-Control", "no-store")).andReturn();
+        // Only Core's own request path (the problem's instance) and a fresh correlation id identify anything.
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("leak", "jdbc", "X-Amz", "storage.internal",
+                "IllegalState");
+        assertThat(count("media_jobs")).isZero();
+        assertThat(jdbc.queryForObject("SELECT state FROM media_uploads", String.class)).isEqualTo("OPEN");
+        // The operator gets one fixed line that the problem's correlation id points to, and nothing of the message.
+        String correlationId = mapper.readTree(result.getResponse().getContentAsString()).path("correlationId")
+                .asString();
+        String log = output.getAll().substring(logStart);
+        assertThat(log).contains("UPLOAD_CONTROL_UNEXPECTED correlationId=" + correlationId
+                + " type=java.lang.IllegalStateException");
+        assertThat(log).doesNotContain("leak", "jdbc", "X-Amz", "storage.internal");
+        // A malformed identifier stays a client error rather than becoming the catch-all's 503.
+        mvc.perform(get("/internal/v1/uploads/not-an-id")
+                        .header("Authorization", "Bearer " + token("core.media.uploads:read")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     private MvcResult complete() throws Exception {

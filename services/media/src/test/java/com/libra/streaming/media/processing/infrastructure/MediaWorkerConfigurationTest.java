@@ -4,6 +4,7 @@ import com.libra.streaming.media.processing.application.BoundedMediaWorker;
 import com.libra.streaming.media.processing.application.JobLeases;
 import com.libra.streaming.media.processing.application.MediaJobHandler;
 import com.libra.streaming.media.processing.domain.ProcessingFailure;
+import com.libra.streaming.media.storage.MediaStorageLayout;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -23,6 +24,22 @@ class MediaWorkerConfigurationTest {
         runner.withPropertyValues("libra.media.worker.enabled=true")
                 .withBean(JobLeases.class, () -> mock(JobLeases.class))
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void theWorkerNeverStartsBeforeTheStorageLayoutIsChecked() throws Exception {
+        // M32: nothing else is guaranteed to create the layout check first (the storage adapters reach S3 lazily),
+        // so the worker resolves it itself. A lazy, failing check models the worst bean order.
+        var leases = mock(JobLeases.class);
+        when(leases.claim(any())).thenReturn(Optional.empty());
+        runner.withPropertyValues("libra.media.worker.enabled=true", "libra.media.worker.poll-interval=10ms")
+                .withBean(JobLeases.class, () -> leases)
+                .withBean(MediaJobHandler.class, () -> (job, cancelled) -> MediaJobHandler.Outcome.settled())
+                .withBean(MediaStorageLayout.class, () -> { throw new IllegalStateException("layout differs"); },
+                        definition -> definition.setLazyInit(true))
+                .run(context -> assertThat(context).hasFailed());
+        Thread.sleep(100);
+        verify(leases, never()).claim(any());
     }
 
     @Test

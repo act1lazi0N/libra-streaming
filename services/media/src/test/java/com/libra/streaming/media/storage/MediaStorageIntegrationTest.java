@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -52,6 +53,8 @@ import static org.assertj.core.api.Assertions.*;
         "libra.media.storage.probe-on-startup=true"
 })
 class MediaStorageIntegrationTest {
+    // This suite has no Flyway schema; the layout check against PostgreSQL is CleanupRaceIntegrationTest's.
+    @MockitoBean MediaStorageLayout layout;
     private static final String ACCESS = "fixture-" + UUID.randomUUID();
     private static final String SECRET = UUID.randomUUID().toString() + UUID.randomUUID();
     private static final String READ_ACCESS = "reader-" + UUID.randomUUID();

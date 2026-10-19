@@ -69,6 +69,8 @@ public final class LifecycleSweeper implements AutoCloseable {
                 // Storage is down for every upload alike; the next pass starts over.
                 events.failed("CLEANUP_STORAGE_UNAVAILABLE");
                 return;
+            } catch (ObjectCleanup.LayoutChanged changed) {
+                events.failed("CLEANUP_LAYOUT_CHANGED");
             } catch (RuntimeException exception) {
                 events.failed("CLEANUP_FAILED");
             }

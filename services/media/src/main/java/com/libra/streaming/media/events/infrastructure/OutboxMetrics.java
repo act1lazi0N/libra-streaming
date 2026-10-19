@@ -3,6 +3,7 @@ package com.libra.streaming.media.events.infrastructure;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.stereotype.Component;
 
 /**
@@ -12,6 +13,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class OutboxMetrics {
+    /** How long one gauge read may wait on PostgreSQL before the value is reported as unknown. */
+    static final int READ_TIMEOUT_SECONDS = 2;
+
     private final JdbcTemplate jdbc;
 
     public OutboxMetrics(JdbcTemplate jdbc, MeterRegistry registry) {
@@ -35,7 +39,12 @@ public class OutboxMetrics {
 
     private double count(String sql) {
         try {
-            Number value = jdbc.queryForObject(sql, Number.class);
+            Number value = jdbc.query(connection -> {
+                var statement = connection.prepareStatement(sql);
+                // Sampled on the registry's thread: a lock or a stalled database is unknown, not a wait (M32).
+                statement.setQueryTimeout(READ_TIMEOUT_SECONDS);
+                return statement;
+            }, (ResultSetExtractor<Number>) rs -> rs.next() ? (Number) rs.getObject(1) : null);
             return value == null ? Double.NaN : value.doubleValue();
         } catch (RuntimeException exception) {
             return Double.NaN;

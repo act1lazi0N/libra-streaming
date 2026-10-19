@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.stereotype.Component;
 
 /**
@@ -21,12 +22,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class LifecycleMetrics implements LifecycleEvents {
     static final List<String> FAILURE_CODES = List.of("EXPIRY_UNAVAILABLE", "CLEANUP_DATABASE_UNAVAILABLE",
-            "CLEANUP_STORAGE_UNAVAILABLE", "CLEANUP_FAILED", "SHUTDOWN_TIMEOUT");
+            "CLEANUP_STORAGE_UNAVAILABLE", "CLEANUP_LAYOUT_CHANGED", "CLEANUP_FAILED", "SHUTDOWN_TIMEOUT");
     static final List<String> TERMINAL_CODES = List.of("SOURCE_MISSING", "SIZE_MISMATCH", "CHECKSUM_MISMATCH",
             "UNSUPPORTED_MEDIA", "CORRUPT_INPUT", "PROCESSING_FAILED", "RETRY_EXHAUSTED");
     private static final Logger LOG = LoggerFactory.getLogger(LifecycleMetrics.class);
     private static final String ACTIVE = "('CLAIMED', 'SOURCE_SELECTED', 'TRANSCODING', 'FINALIZING')";
     private static final String UNFINISHED = "('QUEUED', 'CLAIMED', 'SOURCE_SELECTED', 'TRANSCODING', 'FINALIZING')";
+
+    /** How long one gauge read may wait on PostgreSQL before the value is reported as unknown. */
+    static final int READ_TIMEOUT_SECONDS = 2;
 
     private final JdbcTemplate jdbc;
     private final Counter expired;
@@ -109,7 +113,12 @@ public class LifecycleMetrics implements LifecycleEvents {
 
     private double read(String sql) {
         try {
-            Number value = jdbc.queryForObject(sql, Number.class);
+            Number value = jdbc.query(connection -> {
+                var statement = connection.prepareStatement(sql);
+                // Sampled on the registry's thread: a lock or a stalled database is unknown, not a wait (M32).
+                statement.setQueryTimeout(READ_TIMEOUT_SECONDS);
+                return statement;
+            }, (ResultSetExtractor<Number>) rs -> rs.next() ? (Number) rs.getObject(1) : null);
             return value == null ? Double.NaN : value.doubleValue();
         } catch (RuntimeException exception) {
             return Double.NaN;

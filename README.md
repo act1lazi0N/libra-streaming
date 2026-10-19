@@ -90,8 +90,14 @@ response be reused, and that players who hang up give their streams back. `infra
 (`EXPIRED`, asset FAILED with its event), deletes the staging object and every unselected attempt's source and output
 of uploads that are settled (expired, or with a terminal job) once a write grace has passed, never a selected source or
 output and never by object age, and adds the job's stage, last failure and pending retry plus unsent events to the
-upload status (contracts 1.1.0; deploy Core first) and low-cardinality job, queue and cleanup gauges. The sweeper is off
-by default and on in Compose (`MEDIA_LIFECYCLE_ENABLED`).
+upload status (contracts 1.1.0; deploy Core and Media together) and low-cardinality job, queue and cleanup gauges. The
+sweeper is off by default and on in Compose (`MEDIA_LIFECYCLE_ENABLED`).
+[Cleanup race hardening](docs/media-cleanup-race-hardening-m32.md) stops a worker writing once its own measure of the
+lease has run out, even when its heartbeat is stuck; records the storage layout once (V9) so an instance configured
+with other buckets or prefixes never starts and cleanup never records an upload clean after looking in the wrong place;
+bounds every gauge read so a locked or stalled database reads as unknown; and answers any unnamed failure of the upload
+API with a sanitized 503 and one fixed log line. It races cleanup with a late writer, a finalizing successor, a browser
+PUT across the deadline and other sweepers, and resumes it after each interruption.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

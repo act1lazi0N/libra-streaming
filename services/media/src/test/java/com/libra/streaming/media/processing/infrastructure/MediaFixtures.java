@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
  */
 public final class MediaFixtures {
     private static final Path DIRECTORY = Path.of("target", "media-fixtures").toAbsolutePath();
-    private static final String MARKER = ".complete-m22-1";
+    private static final String MARKER = ".complete-m32-1";
     private static final List<String> H264 = List.of("-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
             "-b:v", "150k", "-g", "30");
     private static final List<String> AAC = List.of("-c:a", "aac", "-b:a", "48k");
@@ -52,6 +52,16 @@ public final class MediaFixtures {
         return List.of("-f", "lavfi", "-i", "testsrc2=size=" + size + ":rate=" + rate, "-t", Double.toString(seconds));
     }
 
+    /**
+     * A pattern with the tone, both cut to {@code seconds} by an output {@code -t}. Before M32 the {@code -t} of
+     * {@link #pattern} landed on the tone input and only {@code -shortest} ended the video, which under load let
+     * x264's buffered frames through: about one run in two produced a 3 s video beside a 1 s audio track.
+     */
+    private static List<String> withTone(String size, int rate, double seconds) {
+        return join(of("-f", "lavfi", "-i", "testsrc2=size=" + size + ":rate=" + rate), TONE,
+                of("-t", Double.toString(seconds)));
+    }
+
     @SafeVarargs
     private static List<String> join(List<String>... parts) {
         var all = new ArrayList<String>();
@@ -72,12 +82,12 @@ public final class MediaFixtures {
             var out = DIRECTORY;
             var tag = of("-metadata", "comment=libra-m19-synthetic");
             // Accepted sources.
-            run(tool, join(pattern("1920x1080", 30, 1), TONE, H264, AAC, of("-shortest"), FAST_START, tag,
+            run(tool, join(withTone("1920x1080", 30, 1), H264, AAC, FAST_START, tag,
                     of(out.resolve("valid-1080p-aac.mp4").toString())));
             run(tool, join(pattern("160x96", 15, 2), H264, of("-an"), FAST_START, tag,
                     of(out.resolve("valid-160x96-silent.mp4").toString())));
             var upright = work.resolve("upright.mp4");
-            run(tool, join(pattern("1280x720", 30, 1), TONE, H264, AAC, of("-shortest"), FAST_START, tag,
+            run(tool, join(withTone("1280x720", 30, 1), H264, AAC, FAST_START, tag,
                     of(upright.toString())));
             // A phone-style clip: stored landscape, displayed rotated by a display matrix.
             run(tool, join(of("-display_rotation:v:0", "90", "-i", upright.toString(), "-c", "copy"), FAST_START,

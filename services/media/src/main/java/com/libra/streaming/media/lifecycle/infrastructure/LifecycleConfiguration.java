@@ -5,7 +5,9 @@ import com.libra.streaming.media.lifecycle.application.CleanupStorage;
 import com.libra.streaming.media.lifecycle.application.LifecycleSweeper;
 import com.libra.streaming.media.lifecycle.application.ObjectCleanup;
 import com.libra.streaming.media.lifecycle.application.UploadExpiry;
+import com.libra.streaming.media.storage.MediaStorageLayout;
 import java.time.Duration;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -22,11 +24,13 @@ public class LifecycleConfiguration {
 
     @Bean(initMethod = "start", destroyMethod = "close")
     LifecycleSweeper lifecycleSweeper(UploadExpiry expiry, CleanupPlans plans, ObjectCleanup cleanup,
-            LifecycleMetrics metrics,
+            LifecycleMetrics metrics, ObjectProvider<MediaStorageLayout> layout,
             @Value("${libra.media.lifecycle.poll-interval:1m}") Duration poll,
             @Value("${libra.media.lifecycle.batch-size:20}") int batch,
             @Value("${libra.media.lifecycle.write-grace:1h}") Duration grace,
             @Value("${libra.media.lifecycle.shutdown-timeout:10s}") Duration shutdown) {
+        // M32: the storage layout is checked before the sweeper derives a single key from it.
+        layout.getIfAvailable();
         return new LifecycleSweeper(expiry, plans, cleanup, metrics,
                 new LifecycleSweeper.Settings(poll, batch, grace, shutdown));
     }

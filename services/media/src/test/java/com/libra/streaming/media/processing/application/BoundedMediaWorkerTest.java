@@ -68,6 +68,99 @@ class BoundedMediaWorkerTest {
     }
 
     @Test
+    void aStalledHeartbeatCannotKeepAnExpiredLeaseWriting() throws Exception {
+        // M32: the heartbeat is stuck in a renewal (a slow pool or database) or was paused with the process, so it
+        // never reports the loss. Once the lease duration has passed since the last confirmed claim or renewal,
+        // another worker may own the job, so the handler must stop before its next storage write.
+        var leases = mock(JobLeases.class);
+        var owner = lease();
+        when(leases.claim(any())).thenReturn(Optional.of(owner), Optional.empty());
+        CountDownLatch stuck = new CountDownLatch(1);
+        when(leases.renew(any(), any())).thenAnswer(call -> { stuck.await(); return true; });
+        var beforeExpiry = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var afterExpiry = new java.util.concurrent.atomic.AtomicBoolean(false);
+        CountDownLatch checked = new CountDownLatch(1);
+        var settings = new BoundedMediaWorker.Settings(Duration.ofMillis(20), Duration.ofMillis(300),
+                Duration.ofMillis(100), Duration.ofMillis(20), Duration.ofSeconds(1));
+        try (var worker = new BoundedMediaWorker(leases, (job, cancelled) -> {
+            beforeExpiry.set(cancelled.getAsBoolean());
+            Thread.sleep(600);
+            afterExpiry.set(cancelled.getAsBoolean());
+            checked.countDown();
+            return MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED);
+        }, settings, ignored -> {})) {
+            worker.start();
+            assertThat(checked.await(3, TimeUnit.SECONDS)).isTrue();
+            assertThat(beforeExpiry).as("a fresh lease is not cancelled").isFalse();
+            assertThat(afterExpiry).as("an unconfirmed lease past its duration is cancelled").isTrue();
+            // Whatever the handler returns, an expired lease records nothing and releases nothing.
+            Thread.sleep(100);
+            verify(leases, never()).retry(any(), any(), any());
+            verify(leases, never()).fail(any(), any());
+            verify(leases, never()).release(any());
+        } finally {
+            stuck.countDown();
+        }
+    }
+
+    @Test
+    void aLateRenewalCannotReviveALapsedLeaseAtFinalization() throws Exception {
+        // The handler never asks; it simply returns after the lease duration. The heartbeat is stuck in a renewal
+        // that the database confirms only afterwards, measured from when it was asked: the lease has lapsed, so the
+        // outcome is not recorded and nothing is released, whatever the late confirmation says.
+        var leases = mock(JobLeases.class);
+        var owner = lease();
+        when(leases.claim(any())).thenReturn(Optional.of(owner), Optional.empty());
+        CountDownLatch stuck = new CountDownLatch(1);
+        CountDownLatch returned = new CountDownLatch(1);
+        when(leases.renew(any(), any())).thenAnswer(call -> { stuck.await(); return true; })
+                .thenReturn(true);
+        var settings = new BoundedMediaWorker.Settings(Duration.ofMillis(20), Duration.ofMillis(300),
+                Duration.ofMillis(100), Duration.ofMillis(20), Duration.ofSeconds(1));
+        try (var worker = new BoundedMediaWorker(leases, (job, cancelled) -> {
+            Thread.sleep(600);
+            returned.countDown();
+            return MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED);
+        }, settings, ignored -> {})) {
+            worker.start();
+            assertThat(returned.await(3, TimeUnit.SECONDS)).isTrue();
+            stuck.countDown();
+            verify(leases, timeout(1000).atLeast(2)).claim(any());
+            verify(leases, never()).retry(any(), any(), any());
+            verify(leases, never()).fail(any(), any());
+            verify(leases, never()).release(any());
+            verify(leases, times(1)).renew(any(), any());
+        } finally {
+            stuck.countDown();
+        }
+    }
+
+    @Test
+    void everyConfirmedRenewalExtendsWhatTheHandlerMayStillDo() throws Exception {
+        var leases = mock(JobLeases.class);
+        var owner = lease();
+        when(leases.claim(any())).thenReturn(Optional.of(owner), Optional.empty());
+        when(leases.renew(any(), any())).thenReturn(true);
+        var cancelledAt = new AtomicInteger(-1);
+        CountDownLatch done = new CountDownLatch(1);
+        var settings = new BoundedMediaWorker.Settings(Duration.ofMillis(20), Duration.ofMillis(300),
+                Duration.ofMillis(50), Duration.ofMillis(20), Duration.ofSeconds(1));
+        try (var worker = new BoundedMediaWorker(leases, (job, cancelled) -> {
+            // Three lease durations with a healthy heartbeat: never cancelled.
+            for (int check = 0; check < 18; check++) {
+                if (cancelled.getAsBoolean()) { cancelledAt.compareAndSet(-1, check); }
+                Thread.sleep(50);
+            }
+            done.countDown();
+            return MediaJobHandler.Outcome.settled();
+        }, settings, ignored -> {})) {
+            worker.start();
+            assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(cancelledAt).hasValue(-1);
+    }
+
+    @Test
     void permanentAndUnexpectedFailuresUseOnlySanitizedClassification() throws Exception {
         for (boolean permanent : new boolean[] {true, false}) {
             var leases = mock(JobLeases.class);
