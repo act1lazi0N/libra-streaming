@@ -98,6 +98,12 @@ with other buckets or prefixes never starts and cleanup never records an upload 
 bounds every gauge read so a locked or stalled database reads as unknown; and answers any unnamed failure of the upload
 API with a sanitized 503 and one fixed log line. It races cleanup with a late writer, a finalizing successor, a browser
 PUT across the deadline and other sweepers, and resumes it after each interruption.
+[Browser vertical slice](docs/media-browser-vertical-slice-m33.md) runs the slice from a real browser. Headless Google
+Chrome, driven by Playwright through a test-only harness page behind the repository ingress, uploads a clip from a file
+input straight to private storage (a real CORS preflight against the bucket rule), waits for Media and Core to report
+READY, and publishes it. A verified Premium viewer then plays it with the pinned hls.js using its own HttpOnly ticket
+cookie, seeks, renews through Core (the next segment's request carries the renewed ticket) and plays to the end, with
+no request mocked and no READY injected. `infra/smoke/check-media-m33.ps1` runs it after `pnpm install` in `web/`.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

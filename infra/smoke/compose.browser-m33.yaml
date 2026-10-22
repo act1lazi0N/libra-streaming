@@ -1,0 +1,22 @@
+# M33 overlay, applied after compose.media-m29.yaml (check-media-m29.ps1 -Milestone 33). The ingress listens on a
+# loopback port chosen before startup, because Core's public base URL and Media's browser origin (the storage CORS
+# rule) must name the page's exact origin. The web upstream is a static stand-in serving only the test-only harness
+# from web/e2e/m33/harness plus the pinned hls.js build; no product UI is built or claimed.
+# Paths here resolve from infra/, the first Compose file's directory.
+services:
+  web:
+    build: !reset null
+    image: nginx:1.29.3-alpine
+    environment: !reset {}
+    volumes:
+      - ${LIBRA_M33_HARNESS:?Run check-media-m29.ps1 -Milestone 33}:/usr/share/libra-m33:ro
+      - ./smoke/browser-m33-web.conf:/etc/nginx/nginx.conf:ro
+  nginx:
+    ports: !override ["127.0.0.1:${LIBRA_M33_INGRESS_PORT:?Run check-media-m29.ps1 -Milestone 33}:80"]
+    # Only the analytics upstream is absent in this slice; it must still resolve. No request to it is made or claimed.
+    extra_hosts: !override
+      - "recommendation-analytics:127.0.0.1"
+    depends_on: !override
+      core: { condition: service_started }
+      media: { condition: service_started }
+      web: { condition: service_started }
