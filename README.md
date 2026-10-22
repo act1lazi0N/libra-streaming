@@ -104,6 +104,14 @@ input straight to private storage (a real CORS preflight against the bucket rule
 READY, and publishes it. A verified Premium viewer then plays it with the pinned hls.js using its own HttpOnly ticket
 cookie, seeks, renews through Core (the next segment's request carries the renewed ticket) and plays to the end, with
 no request mocked and no READY injected. `infra/smoke/check-media-m33.ps1` runs it after `pnpm install` in `web/`.
+[Outages and restarts](docs/media-outage-restart-hardening-m34.md) repeats the slice while Core, Media, Kafka, storage
+and PostgreSQL are stopped, killed, paused or restarted at chosen points, and checks what each interrupted operation
+converges to: one job per upload, READY recorded once, the selected output untouched by a resumed stale worker, no
+ticket-less media and Core's current authority for admission and renewal. It fixes four gaps it found: Core now
+retries a Media event in place while its own database is unavailable instead of dead-lettering it, every application
+service in Compose restarts after it exits (Media refuses to start while storage is down), the ingress re-resolves its
+upstreams so a restarted service on a new address is reached again, and it answers an unreachable Core with a prompt
+503 `CORE_UNAVAILABLE` problem. `infra/smoke/check-media-m34.ps1` runs the matrix.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

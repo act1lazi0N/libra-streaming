@@ -120,6 +120,8 @@ services:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
       mailpit: { condition: service_healthy }
+    # M34: a process that exits (a crash, or a startup refused while a dependency is down) comes back on its own.
+    restart: unless-stopped
 
   media:
     profiles: ["full"]
@@ -181,6 +183,8 @@ services:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
       s3-gateway: { condition: service_started }
+    # Startup refuses while storage is unreachable (bucket check); restarting converges once it returns (M34).
+    restart: unless-stopped
 
   recommendation-analytics:
     profiles: ["full"]
@@ -193,12 +197,14 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
+    restart: unless-stopped
 
   web:
     profiles: ["full"]
     build: { context: ../web }
     environment:
       NODE_ENV: production
+    restart: unless-stopped
 
   nginx:
     profiles: ["full"]
@@ -212,6 +218,7 @@ services:
       - media
       - recommendation-analytics
       - web
+    restart: unless-stopped
 
 volumes:
   postgres-data:

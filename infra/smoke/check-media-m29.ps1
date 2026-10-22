@@ -11,7 +11,9 @@
 # ingress on a loopback port fixed before startup so Core's public URL and Media's storage CORS origin name the page's
 # exact origin, a static stand-in for the web upstream serving web/e2e/m33/harness with the pinned hls.js, and
 # web/e2e/m33-vertical-slice.spec.ts run by Playwright in the installed Google Chrome.
-param([string]$Python = 'python', [ValidateSet('29', '30', '33')][string]$Milestone = '29')
+# -Milestone 34 skips phase 1 and runs media_m34_faults.py (check-media-m34.ps1 passes it): the fault matrix stops,
+# kills, pauses and restarts this project's own services while it drives the slice through the ingress.
+param([string]$Python = 'python', [ValidateSet('29', '30', '33', '34')][string]$Milestone = '29')
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $project = "libra-m$Milestone-" + [guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -27,6 +29,8 @@ $ingressCompose = @('compose', '--project-name', ($project + '-ingress'), '--env
 $evidence = @((Join-Path $verification 'ingress-m29.json'), (Join-Path $verification "media-m$Milestone.json"))
 if ($Milestone -eq '30') { $evidence += Join-Path $verification 'ingress-m30.json' }
 if ($browser) { $evidence = @(Join-Path $verification 'media-m33.json') }
+$faults = $Milestone -eq '34'
+if ($faults) { $evidence = @(Join-Path $verification 'media-m34.json') }
 # Every variable the Compose files interpolate, plus the smoke's own.
 # Playwright's debug switches would print evaluated arguments and cookies; they are cleared like the rest.
 $names = @('LIBRA_M29_ADMIN_PASSWORD', 'LIBRA_M29_ENV_FILE', 'LIBRA_M33_BASE_URL', 'LIBRA_M33_MAIL_URL',
@@ -89,7 +93,7 @@ try {
 
     # Phase 1: the ingress's stream location and limits against a slow stand-in for Media.
     $ingressFailed = $false
-    if (-not $browser) { try {
+    if (-not ($browser -or $faults)) { try {
         & docker @ingressCompose up -d --wait --wait-timeout 60
         if ($LASTEXITCODE -ne 0) { throw 'M29 ingress check environment did not start.' }
         & docker @ingressCompose exec -T nginx nginx -t
@@ -188,8 +192,8 @@ try {
         }
         if ($LASTEXITCODE -ne 0) { throw 'M33 browser vertical slice failed.' }
     } else {
-        & $Python "infra/smoke/media_m$($Milestone)_http.py" --base-url "http://$ingress" --mail-url "http://$mail" `
-            --project $project
+        $driver = if ($faults) { 'infra/smoke/media_m34_faults.py' } else { "infra/smoke/media_m$($Milestone)_http.py" }
+        & $Python $driver --base-url "http://$ingress" --mail-url "http://$mail" --project $project
         if ($LASTEXITCODE -ne 0) { throw "M$Milestone end-to-end playback smoke failed." }
     }
 } catch {

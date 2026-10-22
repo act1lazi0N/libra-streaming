@@ -91,7 +91,7 @@ class MediaStreamContractTest(unittest.TestCase):
         problem = foundation["components"]["schemas"]["Problem"]
         bodies = re.findall(r"return (\d{3}) '(\{.*?\})';", nginx)
         self.assertEqual({("400", "INVALID_REQUEST"), ("403", "ACCESS_DENIED"), ("404", "NOT_FOUND"),
-                          ("503", "MEDIA_UNAVAILABLE")},
+                          ("503", "MEDIA_UNAVAILABLE"), ("503", "CORE_UNAVAILABLE")},
                          {(status, json.loads(template.replace("$problem_id", SESSION))["code"])
                           for status, template in bodies})
         for status, template in bodies:
@@ -108,8 +108,29 @@ class MediaStreamContractTest(unittest.TestCase):
         self.assertIn("if ($request_method != GET) {", body)
         self.assertIn("if ($stream_body) {", body)
         # Every answer Nginx writes on these paths is a problem, whatever the name's extension.
-        self.assertEqual(6, nginx.count("types { }"))
+        self.assertEqual(7, nginx.count("types { }"))
         self.assertIn("Nginx", STREAMS["info"]["description"])
+
+    def test_core_unreachable_through_the_ingress_is_a_prompt_problem(self):
+        nginx = (ROOT / "infra/nginx/nginx.conf").read_text(encoding="utf-8")
+        core = re.search(r"location /api/core/ \{(.*?)\n        \}", nginx, re.S).group(1)
+        # M34: a stopped Core held clients for Nginx's default 60 s connect timeout, then answered an HTML 504.
+        self.assertIn("proxy_connect_timeout 3s;", core)
+        self.assertIn("error_page 502 504 = @core_unavailable;", core)
+        unavailable = re.search(r"location @core_unavailable \{(.*?)\n        \}", nginx, re.S).group(1)
+        self.assertIn("add_header Cache-Control no-store always;", unavailable)
+        self.assertIn("default_type application/problem+json;", unavailable)
+        body = json.loads(re.search(r"return 503 '(\{.*?\})';", unavailable).group(1).replace("$problem_id", SESSION))
+        self.assertEqual(("CORE_UNAVAILABLE", 503), (body["code"], body["status"]))
+
+    def test_ingress_follows_the_current_address_of_every_upstream(self):
+        nginx = (ROOT / "infra/nginx/nginx.conf").read_text(encoding="utf-8")
+        # M34: an upstream resolved once at startup kept a restarted Media's former address.
+        self.assertIn("resolver 127.0.0.11 valid=5s ipv6=off;", nginx)
+        upstreams = re.findall(r"upstream (\w+) \{ zone (\w+) 64k; server ([\w.-]+:\d+) resolve; \}", nginx)
+        self.assertEqual({"core_service", "media_service", "recommendation_service", "web_app"},
+                         {name for name, zone, _ in upstreams if name == zone})
+        self.assertEqual(4, len(re.findall(r"^\s*upstream \w+ \{", nginx, re.M)))
 
     def test_ingress_forwards_nothing_of_media_but_its_health_and_the_stream_route(self):
         nginx = (ROOT / "infra/nginx/nginx.conf").read_text(encoding="utf-8")
