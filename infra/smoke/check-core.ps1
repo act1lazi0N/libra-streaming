@@ -43,10 +43,10 @@ try {
     throw
 } finally {
     # Only this invocation's randomly named project is removed, including its
-    # disposable PostgreSQL anonymous volume. No workstation stack is touched.
+    # disposable PostgreSQL anonymous volume and the project's built images. No workstation stack is touched.
     $cleanupFailed = $false
     if ($started) {
-        & docker @compose down --volumes --remove-orphans --timeout 15
+        & docker @compose down --volumes --rmi local --remove-orphans --timeout 15
         $cleanupFailed = $LASTEXITCODE -ne 0
     }
     foreach ($name in $secretNames) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }

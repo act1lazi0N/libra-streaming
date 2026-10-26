@@ -239,7 +239,8 @@ def main():
     viewer.api("POST", "/auth/refresh", status=401)
     passed("Refresh rotation and logout revocation through ingress")
     evidence.parent.mkdir(parents=True, exist_ok=True)
-    evidence.write_text(json.dumps({"checks": CHECKS, "boundary": "Local disposable Core/PG/Kafka/Mailpit/Nginx; no Media HLS or Analytics projections"}, indent=2) + "\n", encoding="utf-8")
+    evidence.write_text(json.dumps({"checks": CHECKS, "boundary": "Local disposable Core/PG/Kafka/Mailpit/Nginx; no Media HLS or Analytics projections",
+                                    **({"runId": os.environ["LIBRA_VERIFY_RUN_ID"]} if os.environ.get("LIBRA_VERIFY_RUN_ID") else {})}, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

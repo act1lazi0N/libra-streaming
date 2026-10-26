@@ -88,8 +88,11 @@ traversal. Playlists must use relative, credential-free resource paths beneath t
 same session prefix. Private storage keys are resolved by Media, never by browser
 input. No public storage fallback or shared cache may bypass ticket checks.
 
-No production Media verifier or HLS routes are delivered here. The test verifier is
+Milestone 05 delivered no production Media verifier or HLS routes; its test verifier is
 an independent contract fixture for signed tokens, not proof of segment delivery.
+Media's verifier and stream routes arrived later
+([Media protected delivery](media-protected-delivery-m27.md) through
+[Media verification and handoff](media-verification-handoff-m35.md)).
 Tickets are bearer credentials: session end, history clear, deletion and revocation
 cannot revoke an already copied ticket immediately. Delivery must stop by ticket
 expiry, within five minutes (sooner when capped). End clears the current browser's

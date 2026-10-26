@@ -1,4 +1,4 @@
-name: Core CI
+name: LIBRA CI
 
 on:
   push:
@@ -9,14 +9,20 @@ permissions:
   contents: read
 
 concurrency:
-  group: core-ci-${{ github.ref }}
+  group: libra-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   verify:
-    name: Core verification
+    name: Core and Media verification
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Step budgets (apt 10, Maven 35, smokes 15 each) stay below this, leaving time for the always() steps.
+    timeout-minutes: 80
+    env:
+      # The real-tool Media suites use these test-only variables, not MEDIA_*.
+      LIBRA_FFMPEG_PATH: /usr/bin/ffmpeg
+      LIBRA_FFPROBE_PATH: /usr/bin/ffprobe
+      LIBRA_VERIFY_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -32,19 +38,37 @@ jobs:
         run: |
           docker info --format '{{.ServerVersion}}'
           docker compose version
+      - name: Install Media integration test tools
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Require FFmpeg and ffprobe
+        run: |
+          test -x "$LIBRA_FFMPEG_PATH"
+          test -x "$LIBRA_FFPROBE_PATH"
+          # apt on ubuntu-24.04 (noble) is the pin; assert the major rather than float it.
+          ffmpeg_version=$("$LIBRA_FFMPEG_PATH" -version)
+          ffprobe_version=$("$LIBRA_FFPROBE_PATH" -version)
+          printf '%s\n' "$ffmpeg_version" | head -n 1 | grep '^ffmpeg version 6\.'
+          printf '%s\n' "$ffprobe_version" | head -n 1 | grep '^ffprobe version 6\.'
       - name: Install contract validators
         run: python -m pip install -r infra/ci/requirements.txt
       - name: Check verification gate failure paths
         run: python -m unittest discover -s infra/ci -p 'test_*.py'
       - name: Clean full backend verification
+        timeout-minutes: 35
         # Raw JVM output may contain synthetic mail/tokens on assertion failure.
         # Keep it runner-local; publish only the count/filename summaries below.
         run: |
           if ! bash ./mvnw -B -ntp clean verify > "$RUNNER_TEMP/libra-maven.log" 2>&1; then
             echo 'Maven verification failed. Raw output is withheld to avoid exposing test credentials.'
-            python infra/ci/check_test_reports.py
+            python infra/ci/check_test_reports.py || true
+            rm -f target/verification/tests.json
             exit 1
           fi
+      - name: Record toolchain
+        run: python infra/ci/record_toolchain.py
       - name: Require every test suite, zero skips
         run: python infra/ci/check_test_reports.py
       - name: Validate API and event contracts
@@ -55,13 +79,22 @@ jobs:
           export SEAWEEDFS_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
           docker compose --env-file .env.example -f infra/compose.yaml config --quiet
       - name: Packaged Core ingress and infrastructure smoke
+        timeout-minutes: 15
         shell: pwsh
         run: ./infra/smoke/check-core.ps1 -Python python
+      - name: Packaged Media end-to-end smoke
+        timeout-minutes: 15
+        shell: pwsh
+        run: ./infra/smoke/check-media.ps1 -Python python
+      - name: Require sanitized smoke evidence
+        # Always scan before the upload below: the gate deletes any JSON that looks like a secret first.
+        if: always()
+        run: python infra/ci/check_smoke_evidence.py
       - name: Publish sanitized verification evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: core-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          name: libra-verification-${{ github.run_id }}-${{ github.run_attempt }}
           path: target/verification/*.json
           if-no-files-found: ignore
           retention-days: 7

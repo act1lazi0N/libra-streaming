@@ -112,6 +112,13 @@ retries a Media event in place while its own database is unavailable instead of 
 service in Compose restarts after it exits (Media refuses to start while storage is down), the ingress re-resolves its
 upstreams so a restarted service on a new address is reached again, and it answers an unreachable Core with a prompt
 503 `CORE_UNAVAILABLE` problem. `infra/smoke/check-media-m34.ps1` runs the matrix.
+[Verification and handoff](docs/media-verification-handoff-m35.md) packages the checks into one repeatable,
+fail-closed sequence. `infra/ci/verify-local.ps1` reproduces the CI job locally (Maven, report and contract gates,
+the Core smoke and the accepted-flow Media smoke `infra/smoke/check-media.ps1`). The report gate now requires
+executed Media integration suites, including the real ffprobe, FFmpeg, socket and storage suites, and a new gate
+accepts only smoke evidence from the current run, deleting any file that looks like a secret before the artifact
+upload. The milestone doc is the handoff reference for configuration, startup, states, error codes, recovery and
+protected delivery.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d
@@ -162,8 +169,9 @@ and centralized eligibility checks.
 
 See [Core playback and history](docs/core-playback.md) for Milestone 5: session
 admission/renewal, signed Media ticket contracts, sequence-safe progress, resume,
-continue watching, next episode and transactional viewing outbox. Actual Media HLS
-delivery, the player and Analytics consumption remain separate work.
+continue watching, next episode and transactional viewing outbox. Media HLS delivery
+followed in the Media milestones above; the product player and Analytics consumption
+remain separate work.
 
 See [Core watchlist and community](docs/core-community.md) for Milestone 6:
 profile watchlists, qualified account reviews, reporting, administrator moderation,
@@ -174,5 +182,5 @@ See [Core Analytics read adapters](docs/core-analytics-adapter.md) and
 recommendations/statistics with truthful fallback, scoped service JWTs, durable
 outbox delivery/recovery, Media DLT inspection/redrive, transactional audit and
 administrator metrics. Analytics and inbound Media HTTP authentication are disabled
-by default pending dedicated keys. Actual Analytics projections and Media HLS remain
+by default pending dedicated keys. Actual Analytics projections remain
 separate service work.

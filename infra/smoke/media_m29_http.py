@@ -139,7 +139,7 @@ def play(args):
         "releaseYear": 2026, "language": "en", "credits": [], "imageReferences": [], "accessTier": "PREMIUM"}})
     content_id = movie["id"]
     clip_path = WORK / "source.mp4"
-    encode = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
+    encode = subprocess.run([os.environ.get("LIBRA_FFMPEG_PATH") or "ffmpeg", "-v", "error", "-nostdin", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
                              "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "12",
                              "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p", "-c:a", "aac",
                              "-b:a", "48k", "-shortest", "-movflags", "+faststart", str(clip_path)],
@@ -253,7 +253,7 @@ def play(args):
     passed(f"Master, rendition and all {len(segments)} segments ({total} bytes) served whole through Nginx")
 
     def decode(source, extra=()):
-        result = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-xerror", *extra, "-i", source,
+        result = subprocess.run([os.environ.get("LIBRA_FFMPEG_PATH") or "ffmpeg", "-v", "error", "-nostdin", "-xerror", *extra, "-i", source,
                                  "-map", "0", "-f", "null", "-"], capture_output=True, timeout=180)
         require(result.returncode == 0 and not result.stderr.strip(), "HLS did not decode cleanly")
 
@@ -261,7 +261,7 @@ def play(args):
     # ffmpeg as the player: it requests the master, the rendition and every segment through Nginx itself, with the
     # ticket as the only credential.
     decode(args.base_url + session["manifestPath"], ("-headers", f"Cookie: {TICKET_COOKIE}={ticket}\r\n"))
-    probe = subprocess.run(["ffprobe", "-v", "error", "-headers", f"Cookie: {TICKET_COOKIE}={ticket}\r\n",
+    probe = subprocess.run([os.environ.get("LIBRA_FFPROBE_PATH") or "ffprobe", "-v", "error", "-headers", f"Cookie: {TICKET_COOKIE}={ticket}\r\n",
                             "-show_entries", "format=duration:stream=codec_type,codec_name,height", "-of", "json",
                             args.base_url + session["manifestPath"]], capture_output=True, text=True, timeout=120)
     require(probe.returncode == 0, "ffprobe could not read the HLS through Nginx")
@@ -324,6 +324,7 @@ def main():
     evidence.write_text(json.dumps({
         "result": "MEDIA_M29_SMOKE_PASS", "checkedAt": datetime.now(timezone.utc).isoformat(), "checks": CHECKS,
         "segments": len(segments), "deliveredBytes": total,
+        **({"runId": os.environ["LIBRA_VERIFY_RUN_ID"]} if os.environ.get("LIBRA_VERIFY_RUN_ID") else {}),
         "boundary": "Local disposable Compose: real compose.yaml and nginx.conf, packaged Core and Media JARs, "
                     "PostgreSQL, Kafka, Mailpit, SeaweedFS; ffmpeg as the player; no browser, web app or analytics"
     }, indent=2) + "\n", encoding="utf-8")

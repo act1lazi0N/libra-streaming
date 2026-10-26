@@ -2,6 +2,7 @@
 import argparse
 import concurrent.futures
 import json
+import os
 from pathlib import Path
 import re
 import socket
@@ -128,7 +129,8 @@ def main():
     require(args.evidence, "Evidence path required")
     Path(args.evidence).parent.mkdir(parents=True, exist_ok=True)
     with open(args.evidence, "w", encoding="utf-8") as evidence:
-        json.dump({"result": "INGRESS_M29_PASS", "checks": CHECKS}, evidence, indent=2)
+        json.dump({"result": "INGRESS_M29_PASS", "checks": CHECKS,
+                   **({"runId": os.environ["LIBRA_VERIFY_RUN_ID"]} if os.environ.get("LIBRA_VERIFY_RUN_ID") else {})}, evidence, indent=2)
         evidence.write("\n")
     print("INGRESS_M29_PASS", flush=True)
 
