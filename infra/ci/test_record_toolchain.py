@@ -1,4 +1,7 @@
 import json
+from contextlib import redirect_stdout
+import hashlib
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -6,7 +9,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from record_toolchain import executable, record, version
+from record_toolchain import executable, main, record, revision_record, version
 
 
 class RecordToolchainTest(unittest.TestCase):
@@ -14,6 +17,8 @@ class RecordToolchainTest(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
+        self.revision = {"commit": "a1" * 20, "dirty": False, "changedPaths": 0, "stateSha256": "b2" * 32}
+        self.enterContext(mock.patch("record_toolchain.revision_record", return_value=self.revision))
         self.properties = self.root / ".mvn/wrapper/maven-wrapper.properties"
         self.properties.parent.mkdir(parents=True)
         self.properties.write_text(
@@ -175,7 +180,105 @@ class RecordToolchainTest(unittest.TestCase):
         result = json.loads(self.output.read_text(encoding="utf-8"))
         self.assertEqual(result["distributionUrl"], "https://example.test:8443/maven.zip")
         self.assertEqual(set(result), {"java", "docker", "dockerCompose", "ffmpeg", "ffprobe", "python",
-                                       "wrapperVersion", "distributionUrl"})
+                                       "wrapperVersion", "distributionUrl", "revision"})
+        self.assertEqual(result["revision"], self.revision)
+
+    def test_revision_cli_writes_only_compact_json(self):
+        with redirect_stdout(io.StringIO()) as output, mock.patch("record_toolchain.record") as recorder:
+            main(["--root", str(self.root), "--revision"])
+        self.assertEqual(output.getvalue(), json.dumps(self.revision, separators=(",", ":")) + "\n")
+        recorder.assert_not_called()
+        self.assertFalse(self.output.exists())
+
+    def test_revision_failure_removes_previous_evidence(self):
+        self.output.parent.mkdir(parents=True)
+        self.output.write_text('{}', encoding="utf-8")
+        with mock.patch("record_toolchain.revision_record", side_effect=ValueError("Git unavailable")):
+            with self.assertRaisesRegex(ValueError, "Git unavailable"):
+                record(self.root)
+        self.assertFalse(self.output.exists())
+
+
+class RevisionRecordTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.git("init", "-q")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.test")
+        self.git("config", "core.autocrlf", "false")
+        (self.root / ".gitignore").write_bytes(b"ignored/\n")
+        (self.root / "tracked").write_bytes(b"initial\n")
+        self.git("add", ".")
+        self.git("-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
+
+    def git(self, *arguments):
+        return subprocess.run(["git", "-C", str(self.root), *arguments], capture_output=True, check=True).stdout
+
+    def test_clean_revision(self):
+        revision = revision_record(self.root)
+        self.assertEqual(revision, {"commit": self.git("rev-parse", "HEAD").decode().strip(), "dirty": False,
+                                    "changedPaths": 0, "stateSha256": hashlib.sha256(b"").hexdigest()})
+
+    def test_tracked_staged_and_unstaged_binary_changes(self):
+        clean = revision_record(self.root)
+        (self.root / "tracked").write_bytes(b"binary\0fixture\n")
+        dirty = revision_record(self.root)
+        self.assertTrue(dirty["dirty"])
+        self.assertEqual(dirty["changedPaths"], 1)
+        self.assertNotEqual(dirty["stateSha256"], clean["stateSha256"])
+        self.git("add", "tracked")
+        self.assertEqual(revision_record(self.root), dirty)
+        (self.root / "tracked").write_bytes(b"binary\0changed\n")
+        self.assertNotEqual(revision_record(self.root)["stateSha256"], dirty["stateSha256"])
+
+    def test_untracked_paths_contents_and_sorted_hashing(self):
+        for name in ("z fixture", "a fixture"):
+            (self.root / name).write_bytes(b"inert\0fixture")
+        revision = revision_record(self.root)
+        state = hashlib.sha256(b"")
+        for name in ("a fixture", "z fixture"):
+            state.update(b"\0" + name.encode() + b"\0" + self.git("hash-object", "--", name).strip() + b"\0")
+        self.assertEqual(revision["stateSha256"], state.hexdigest())
+        self.assertEqual(revision["changedPaths"], 2)
+        (self.root / "a fixture").write_bytes(b"changed")
+        self.assertNotEqual(revision_record(self.root)["stateSha256"], revision["stateSha256"])
+        (self.root / "a fixture").write_bytes(b"inert\0fixture")
+        (self.root / "a fixture").rename(self.root / "b fixture")
+        self.assertNotEqual(revision_record(self.root)["stateSha256"], revision["stateSha256"])
+
+    def test_ignored_files_do_not_change_revision(self):
+        clean = revision_record(self.root)
+        (self.root / "ignored").mkdir()
+        (self.root / "ignored/fixture").write_bytes(b"ignored")
+        self.assertEqual(revision_record(self.root), clean)
+
+    def test_git_failures_fail_closed(self):
+        for command in ("rev-parse", "status", "diff", "ls-files", "hash-object"):
+            (self.root / "untracked").write_bytes(b"inert")
+            original = subprocess.run
+
+            def run(arguments, **kwargs):
+                if arguments[3] == command:
+                    return subprocess.CompletedProcess(arguments, 1, b"", b"inert failure")
+                return original(arguments, **kwargs)
+
+            with self.subTest(command=command), mock.patch("record_toolchain.subprocess.run", side_effect=run):
+                with self.assertRaisesRegex(ValueError, "Unable to read Git revision"):
+                    revision_record(self.root)
+
+    def test_git_oserror_fails_closed(self):
+        with mock.patch("record_toolchain.subprocess.run", side_effect=OSError):
+            with self.assertRaisesRegex(ValueError, "Unable to read Git revision"):
+                revision_record(self.root)
+
+    def test_malformed_commit_fails_closed(self):
+        for commit in (b"A" * 40, b"a" * 39, b"not-a-commit"):
+            with self.subTest(commit=commit), mock.patch("record_toolchain.subprocess.run", return_value=
+                    subprocess.CompletedProcess([], 0, commit + b"\n", b"")):
+                with self.assertRaisesRegex(ValueError, "Malformed Git commit"):
+                    revision_record(self.root)
 
 
 if __name__ == "__main__":

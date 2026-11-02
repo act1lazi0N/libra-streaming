@@ -1,7 +1,10 @@
 #requires -Version 7.0
+# Cleanup requires proof that the disposable Compose project was removed.
 param([string]$Python = 'python')
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'assert-compose-removed.ps1')
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+$failure = $null
 $project = 'libra-smoke-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
 $compose = @('compose', '--project-name', $project, '--file', (Join-Path $PSScriptRoot 'compose.core.yaml'))
 $secretNames = @('LIBRA_SMOKE_JWT_KEY', 'LIBRA_SMOKE_MAIL_KEY', 'LIBRA_SMOKE_PRIVATE_KEY', 'LIBRA_SMOKE_PUBLIC_KEY', 'LIBRA_SMOKE_ADMIN_PASSWORD')
@@ -39,20 +42,30 @@ try {
     & $Python infra/smoke/core_http.py --base-url "http://$apiAddress" --mail-url "http://$mailAddress" --project $project
     if ($LASTEXITCODE -ne 0) { throw 'Core HTTP/infrastructure smoke failed.' }
 } catch {
+    $failure = $_
     if (Test-Path -LiteralPath $evidence) { Remove-Item -LiteralPath $evidence }
     throw
 } finally {
     # Only this invocation's randomly named project is removed, including its
     # disposable PostgreSQL anonymous volume and the project's built images. No workstation stack is touched.
     $cleanupFailed = $false
+    $cleanupDetail = ''
     if ($started) {
         & docker @compose down --volumes --rmi local --remove-orphans --timeout 15
         $cleanupFailed = $LASTEXITCODE -ne 0
+        if (-not $cleanupFailed) {
+            try { Assert-ComposeProjectRemoved -Project $project } catch {
+                $cleanupFailed = $true
+                $cleanupDetail = " $($_.Exception.Message)"
+            }
+        }
     }
     foreach ($name in $secretNames) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
     Pop-Location
     if ($cleanupFailed) {
         if (Test-Path -LiteralPath $evidence) { Remove-Item -LiteralPath $evidence }
-        throw "Smoke cleanup failed for project $project; remove that project explicitly."
+        # Keep the smoke's own failure visible: this throw replaces any exception still propagating from try.
+        $original = if ($null -ne $failure) { " Smoke failure: $($failure.Exception.Message)" } else { '' }
+        throw "Smoke cleanup failed for project $project; remove that project explicitly.$cleanupDetail$original"
     }
 }

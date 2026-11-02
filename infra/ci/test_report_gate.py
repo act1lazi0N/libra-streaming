@@ -1,16 +1,19 @@
 from contextlib import redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import re
 import tempfile
 import unittest
+from unittest import mock
 
 from check_test_reports import REQUIRED_MEDIA_SUITES, collect, main
 
 
 class ReportGateTest(unittest.TestCase):
     def setUp(self):
+        self.enterContext(mock.patch.dict(os.environ, {"LIBRA_VERIFY_STARTED_AT": "", "LIBRA_VERIFY_RUN_ID": ""}))
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
@@ -58,6 +61,7 @@ class ReportGateTest(unittest.TestCase):
 
     def test_requires_core_failsafe_suite(self):
         self.source("core", "example.BoundaryIntegrationTest").unlink()
+        self.report("core", "example.BoundaryIntegrationTest").unlink()
         with self.assertRaisesRegex(ValueError, "No Core integration evidence"):
             collect(self.root)
 
@@ -105,6 +109,9 @@ class ReportGateTest(unittest.TestCase):
         summary = json.loads((self.root / "target/verification/tests.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["suites"], rows)
         self.assertEqual(summary["tests"], 10)
+        self.assertEqual(summary["result"], "TESTS_PASS")
+        self.assertNotIn("runId", summary)
+        self.assertNotIn("startedAt", summary)
         self.assertEqual(summary["modules"], {
             "core": {"failsafe": {"suites": 1, "tests": 1}, "surefire": {"suites": 1, "tests": 2}},
             "media": {"failsafe": {"suites": 4, "tests": 4}, "surefire": {"suites": 1, "tests": 3}},
@@ -118,6 +125,88 @@ class ReportGateTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             main(["--root", str(self.root)])
         self.assertFalse(summary.exists())
+
+    def test_malformed_run_start_fails(self):
+        for value in ("abc", "-1", "1.0", " 1", "1\n"):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"LIBRA_VERIFY_STARTED_AT": value}):
+                with self.assertRaisesRegex(ValueError, "Malformed run start: LIBRA_VERIFY_STARTED_AT"):
+                    collect(self.root)
+
+    def test_stale_or_equal_report_fails(self):
+        report = self.report("core", "example.UnitTest")
+        started = report.stat().st_mtime_ns
+        with mock.patch.dict(os.environ, {"LIBRA_VERIFY_STARTED_AT": str(started)}):
+            for difference in (-1_000_000_000, 0):
+                with self.subTest(difference=difference):
+                    for path in self.root.rglob("TEST-*.xml"):
+                        os.utime(path, ns=(started + 1_000_000_000, started + 1_000_000_000))
+                    os.utime(report, ns=(started + difference, started + difference))
+                    with self.assertRaisesRegex(ValueError, "Stale report: TEST-example.UnitTest.xml"):
+                        collect(self.root)
+
+    def test_summary_records_run_identity(self):
+        with mock.patch.dict(os.environ, {"LIBRA_VERIFY_RUN_ID": "fixture-run", "LIBRA_VERIFY_STARTED_AT": "1"}):
+            with redirect_stdout(io.StringIO()):
+                main(["--root", str(self.root)])
+        summary = json.loads((self.root / "target/verification/tests.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["result"], "TESTS_PASS")
+        self.assertEqual(summary["runId"], "fixture-run")
+        self.assertEqual(summary["startedAt"], "1")
+
+    def test_unmapped_reports_are_counted_once_in_both_lanes(self):
+        for lane in ("surefire", "failsafe"):
+            report = self.root / f"services/core/target/{lane}-reports/TEST-example.Dynamic.xml"
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text('<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase/></testsuite>',
+                              encoding="utf-8")
+        with redirect_stdout(io.StringIO()):
+            main(["--root", str(self.root)])
+        summary = json.loads((self.root / "target/verification/tests.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(summary["suites"]), 9)
+        self.assertEqual(summary["tests"], 12)
+        self.assertEqual(summary["modules"]["core"], {
+            "surefire": {"suites": 2, "tests": 3}, "failsafe": {"suites": 2, "tests": 2}})
+        self.assertEqual({r["lane"] for r in summary["suites"] if r["suite"] == "example.Dynamic"},
+                         {"surefire", "failsafe"})
+
+    def test_unmapped_reports_enforce_all_failure_rules(self):
+        for lane in ("surefire", "failsafe"):
+            report = self.root / f"services/core/target/{lane}-reports/TEST-example.Dynamic.xml"
+            report.parent.mkdir(parents=True, exist_ok=True)
+            for tests, failures, errors, skipped, body in (
+                    (0, 0, 0, 0, ""), (1, 0, 0, 0, ""),
+                    (1, 1, 0, 0, "<testcase/>"), (1, 0, 1, 0, "<testcase/>"),
+                    (1, 0, 0, 1, "<testcase/>"), (1, 0, 0, 0, "<testcase><failure/></testcase>"),
+                    (1, 0, 0, 0, "<testcase><error/></testcase>"), (1, 0, 0, 0, "<testcase><skipped/></testcase>")):
+                with self.subTest(lane=lane, body=body, counts=(tests, failures, errors, skipped)):
+                    report.write_text(f'<testsuite tests="{tests}" failures="{failures}" errors="{errors}" '
+                                      f'skipped="{skipped}">{body}</testsuite>', encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "suite: example.Dynamic"):
+                        collect(self.root)
+            report.unlink()
+
+    def test_unmapped_report_must_be_fresh(self):
+        report = self.root / "services/core/target/surefire-reports/TEST-example.Dynamic.xml"
+        report.write_text('<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase/></testsuite>',
+                          encoding="utf-8")
+        os.utime(report, ns=(1, 1))
+        with mock.patch.dict(os.environ, {"LIBRA_VERIFY_STARTED_AT": "10000000000"}):
+            with self.assertRaisesRegex(ValueError, "Stale report: TEST-example.Dynamic.xml"):
+                collect(self.root)
+
+    def test_nested_report_is_validated_in_its_lane(self):
+        report = self.root / "services/core/target/failsafe-reports/nested/TEST-example.Dynamic.xml"
+        report.parent.mkdir(parents=True)
+        report.write_text('<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase/></testsuite>',
+                          encoding="utf-8")
+        rows = collect(self.root)
+        self.assertEqual([row for row in rows if row["suite"] == "example.Dynamic"], [
+            {"module": "core", "lane": "failsafe", "suite": "example.Dynamic",
+             "tests": 1, "failures": 0, "errors": 0, "skipped": 0}])
+        report.write_text('<testsuite tests="1" failures="0" errors="0" skipped="1"><testcase/></testsuite>',
+                          encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Failed or skipped suite: example.Dynamic"):
+            collect(self.root)
 
 
 if __name__ == "__main__":

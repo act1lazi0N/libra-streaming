@@ -1,5 +1,6 @@
-"""Record tool version strings only; missing or failing tools invalidate the result."""
+"""Record tool versions and revision provenance; fail closed on unavailable tools."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -51,6 +52,29 @@ def executable(name, environment=None, directory=None):
     return path
 
 
+def revision_record(root):
+    def git(*arguments):
+        try:
+            result = subprocess.run(["git", "-C", str(root), *arguments], capture_output=True, check=False)
+        except OSError:
+            raise ValueError("Unable to read Git revision") from None
+        if result.returncode != 0:
+            raise ValueError("Unable to read Git revision")
+        return result.stdout
+
+    commit = git("rev-parse", "HEAD").strip()
+    if not re.fullmatch(rb"[0-9a-f]{40}", commit):
+        raise ValueError("Malformed Git commit")
+    changed_paths = len(git("status", "--porcelain=v1", "--untracked-files=all").splitlines())
+    # User diff drivers, textconv filters and colour must not change what is hashed.
+    state = hashlib.sha256(git("diff", "--no-ext-diff", "--no-textconv", "--no-color", "HEAD", "--binary"))
+    for path in sorted(filter(None, git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0"))):
+        object_id = git("hash-object", "--", os.fsdecode(path)).strip()
+        state.update(b"\0" + path + b"\0" + object_id + b"\0")
+    return {"commit": commit.decode("ascii"), "dirty": changed_paths > 0,
+            "changedPaths": changed_paths, "stateSha256": state.hexdigest()}
+
+
 def record(root):
     output = root / "target/verification/toolchain.json"
     output.unlink(missing_ok=True)
@@ -84,14 +108,19 @@ def record(root):
     properties["distributionUrl"] = urlunsplit(distribution._replace(
         netloc=distribution.netloc.rsplit("@", 1)[-1], query="", fragment=""))
     versions.update(properties)
+    versions["revision"] = revision_record(root)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(versions, indent=2) + "\n", encoding="utf-8")
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
-    args = parser.parse_args()
+    parser.add_argument("--revision", action="store_true")
+    args = parser.parse_args(argv)
+    if args.revision:
+        print(json.dumps(revision_record(args.root), separators=(",", ":")))
+        return
     record(args.root)
     print("PASS: required toolchain versions recorded")
 

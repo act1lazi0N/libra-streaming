@@ -1,6 +1,7 @@
 package com.libra.streaming.media.events.infrastructure;
 
 import com.libra.streaming.media.processing.application.JobLeases;
+import com.libra.streaming.media.processing.domain.JobLease;
 import com.libra.streaming.media.processing.domain.ProcessingFailure;
 import com.libra.streaming.media.upload.infrastructure.MediaPersistenceService;
 import java.nio.file.Files;
@@ -78,7 +79,7 @@ class OutboxProcessRecoveryIntegrationTest {
                     UUID.randomUUID(), UUID.randomUUID(), 1, 1024, "a".repeat(64), Instant.now().plusSeconds(1800));
             uploads.ensure(upload);
             uploads.queue(upload.uploadId(), upload.assetId(), 1);
-            var lease = leases.claim(Duration.ofSeconds(60)).orElseThrow();
+            var lease = claimQueued();
             assertThat(leases.fail(lease, ProcessingFailure.CORRUPT_INPUT)).isTrue();
             keys.add(lease.assetId().toString());
         }
@@ -155,6 +156,25 @@ class OutboxProcessRecoveryIntegrationTest {
         builder.environment().put("MEDIA_DB_USERNAME", POSTGRES.getUsername());
         builder.environment().put("MEDIA_DB_PASSWORD", POSTGRES.getPassword());
         return builder.redirectErrorStream(true).redirectOutput(output.toFile()).start();
+    }
+
+    /**
+     * The job was queued with {@code next_attempt_at = clock_timestamp()}. If the database clock steps back (Docker
+     * Desktop's VM corrects its clock), the job is briefly not yet due, so wait for it instead of failing the setup.
+     */
+    private JobLease claimQueued() throws InterruptedException {
+        long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            var lease = leases.claim(Duration.ofSeconds(60));
+            if (lease.isPresent()) { return lease.get(); }
+            if (System.nanoTime() > end) {
+                fail("Queued job not claimable within 10 s: " + jdbc.queryForList("""
+                        SELECT stage, next_attempt_at - clock_timestamp() AS due_in FROM media_jobs
+                        WHERE stage = 'QUEUED'
+                        """));
+            }
+            Thread.sleep(20);
+        }
     }
 
     private int sent() { return count("delivery_state = 'SENT'"); }

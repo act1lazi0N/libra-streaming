@@ -180,6 +180,7 @@ def main():
     evidence.parent.mkdir(parents=True, exist_ok=True)
     evidence.write_text(json.dumps({
         "result": "MEDIA_M30_SMOKE_PASS", "checkedAt": datetime.now(timezone.utc).isoformat(), "checks": CHECKS,
+        **({"runId": os.environ["LIBRA_VERIFY_RUN_ID"]} if os.environ.get("LIBRA_VERIFY_RUN_ID") else {}),
         "segments": len(segments), "largestSegmentBytes": len(stored[largest]),
         "boundary": "Local disposable Compose: real compose.yaml and nginx.conf, packaged Core and Media JARs, "
                     "PostgreSQL, Kafka, Mailpit, SeaweedFS; raw sockets and ffmpeg as players; no browser"

@@ -1,14 +1,26 @@
 #requires -Version 7.0
-# The -Python interpreter must already have infra/ci/requirements.txt installed.
-param([string]$Python = 'python', [switch]$Offline)
+# Reset verification evidence before revision capture and run checks; -Python needs infra/ci/requirements.txt.
+param([string]$Python = 'python', [switch]$Offline, [switch]$Acceptance)
 $ErrorActionPreference = 'Stop'
 # Native exits are checked explicitly, including Maven whose raw output stays local.
 $PSNativeCommandUseErrorActionPreference = $false
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+$verification = Join-Path $repository 'target/verification'
+if (Test-Path -LiteralPath $verification) {
+    if ([IO.Path]::GetFullPath($verification) -ne [IO.Path]::Combine($repository, 'target', 'verification')) {
+        throw 'Unexpected verification directory.'
+    }
+    Remove-Item -LiteralPath $verification -Recurse -Force
+}
 $previousRunId = [Environment]::GetEnvironmentVariable('LIBRA_VERIFY_RUN_ID', 'Process')
+$previousStartedAt = [Environment]::GetEnvironmentVariable('LIBRA_VERIFY_STARTED_AT', 'Process')
 $env:LIBRA_VERIFY_RUN_ID = [guid]::NewGuid().ToString('N')
+$env:LIBRA_VERIFY_STARTED_AT = (([DateTime]::UtcNow - [DateTime]::UnixEpoch).Ticks * 100).ToString('0', [Globalization.CultureInfo]::InvariantCulture)
 Push-Location $repository
 try {
+    $revisionJson = & $Python (Join-Path $PSScriptRoot 'record_toolchain.py') --revision
+    if ($LASTEXITCODE -ne 0) { throw 'Starting revision capture failed.' }
+    $startingRevision = $revisionJson | ConvertFrom-Json
     & docker info | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Docker is required; local verification cannot be skipped.' }
     & docker compose version
@@ -28,7 +40,7 @@ try {
     New-Item -ItemType Directory -Force $logDirectory | Out-Null
     $mavenLog = Join-Path $logDirectory 'verify-local-maven.log'
     $mavenEnvironment = @{}
-    $retainedNames = @('LIBRA_FFMPEG_PATH', 'LIBRA_FFPROBE_PATH', 'LIBRA_VERIFY_RUN_ID')
+    $retainedNames = @('LIBRA_FFMPEG_PATH', 'LIBRA_FFPROBE_PATH', 'LIBRA_VERIFY_RUN_ID', 'LIBRA_VERIFY_STARTED_AT')
     $mavenExitCode = 1
     try {
         foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
@@ -57,6 +69,14 @@ try {
     }
     & $Python (Join-Path $PSScriptRoot 'record_toolchain.py')
     if ($LASTEXITCODE -ne 0) { throw 'Required toolchain recording failed.' }
+    # Before the smokes: a tree changed during Maven fails here, and the evidence gate compares the tree with this
+    # record again at the end, so no PASS can name a revision other than the one the run started from.
+    $toolchain = Get-Content -LiteralPath (Join-Path $verification 'toolchain.json') -Raw | ConvertFrom-Json
+    foreach ($field in @('commit', 'dirty', 'changedPaths', 'stateSha256')) {
+        if ($toolchain.revision.$field -cne $startingRevision.$field) {
+            throw 'Revision changed since verification started.'
+        }
+    }
     & $Python (Join-Path $PSScriptRoot 'check_test_reports.py')
     if ($LASTEXITCODE -ne 0) { throw 'Maven test report verification failed.' }
     & $Python (Join-Path $PSScriptRoot 'check_contracts.py')
@@ -80,10 +100,19 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Packaged Core smoke failed.' }
     & (Join-Path $repository 'infra/smoke/check-media.ps1') -Python $Python
     if ($LASTEXITCODE -ne 0) { throw 'Packaged Media smoke failed.' }
-    & $Python (Join-Path $PSScriptRoot 'check_smoke_evidence.py')
+    $gateArguments = @()
+    if ($Acceptance) {
+        foreach ($milestone in @('m30', 'm33', 'm34', 'm36')) {
+            & (Join-Path $repository "infra/smoke/check-media-$milestone.ps1") -Python $Python
+            if ($LASTEXITCODE -ne 0) { throw "Packaged Media $milestone smoke failed." }
+        }
+        $gateArguments += '--acceptance'
+    }
+    & $Python (Join-Path $PSScriptRoot 'check_smoke_evidence.py') @gateArguments
     if ($LASTEXITCODE -ne 0) { throw 'Sanitized smoke evidence verification failed.' }
 } finally {
     [Environment]::SetEnvironmentVariable('LIBRA_VERIFY_RUN_ID', $previousRunId, 'Process')
+    [Environment]::SetEnvironmentVariable('LIBRA_VERIFY_STARTED_AT', $previousStartedAt, 'Process')
     Pop-Location
 }
-Write-Output 'PASS: LIBRA local verification reproduced CI order'
+Write-Output "PASS: LIBRA local verification reproduced CI order; commit=$($startingRevision.commit) dirty=$($startingRevision.dirty)"

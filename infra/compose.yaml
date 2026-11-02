@@ -33,6 +33,16 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # The image's default is /tmp/kraft-combined-logs inside the container, lost whenever it is recreated.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      # Unacknowledged events and consumer offsets must survive `down`/`up`, as the databases do; the image's own
+      # anonymous data volume would be replaced on recreation.
+      - kafka-data:/var/lib/kafka/data
+    tmpfs:
+      # The image's unused SSL and override-config volumes would otherwise be left behind as unlabeled volumes.
+      - /etc/kafka/secrets
+      - /mnt/shared/config
     ports:
       - "127.0.0.1:9092:19092"
     healthcheck:
@@ -222,6 +232,7 @@ services:
 
 volumes:
   postgres-data:
+  kafka-data:
   seaweedfs-data:
 
 networks:

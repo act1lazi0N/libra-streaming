@@ -5,6 +5,7 @@ credentials or bodies."""
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import socket
@@ -149,6 +150,7 @@ def main():
 
     Path(args.evidence).write_text(json.dumps({
         "result": "INGRESS_M30_PATHS_PASS", "checkedAt": datetime.now(timezone.utc).isoformat(), "checks": CHECKS,
+        **({"runId": os.environ["LIBRA_VERIFY_RUN_ID"]} if os.environ.get("LIBRA_VERIFY_RUN_ID") else {}),
         "observed": observed,
         "boundary": "Repository nginx.conf in Nginx 1.29.3 in front of a stand-in for Media; no Media, ticket or "
                     "storage involved"}, indent=2) + "\n", encoding="utf-8")

@@ -13,8 +13,11 @@
 # web/e2e/m33-vertical-slice.spec.ts run by Playwright in the installed Google Chrome.
 # -Milestone 34 skips phase 1 and runs media_m34_faults.py (check-media-m34.ps1 passes it): the fault matrix stops,
 # kills, pauses and restarts this project's own services while it drives the slice through the ingress.
-param([string]$Python = 'python', [ValidateSet('29', '30', '33', '34')][string]$Milestone = '29')
+# -Milestone 36 skips phase 1 and runs media_m36_restart.py (check-media-m36.ps1 passes it): the retained-state
+# restart of the whole packaged stack takes Compose down without volumes, then up again with the same keys.
+param([string]$Python = 'python', [ValidateSet('29', '30', '33', '34', '36')][string]$Milestone = '29')
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'assert-compose-removed.ps1')
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $project = "libra-m$Milestone-" + [guid]::NewGuid().ToString('N').Substring(0, 12)
 $verification = Join-Path $repository 'target/verification'
@@ -31,11 +34,13 @@ if ($Milestone -eq '30') { $evidence += Join-Path $verification 'ingress-m30.jso
 if ($browser) { $evidence = @(Join-Path $verification 'media-m33.json') }
 $faults = $Milestone -eq '34'
 if ($faults) { $evidence = @(Join-Path $verification 'media-m34.json') }
+$restart = $Milestone -eq '36'
+if ($restart) { $evidence = @(Join-Path $verification 'media-m36.json') }
 # Every variable the Compose files interpolate, plus the smoke's own.
 # Playwright's debug switches would print evaluated arguments and cookies; they are cleared like the rest.
 $names = @('LIBRA_M29_ADMIN_PASSWORD', 'LIBRA_M29_ENV_FILE', 'LIBRA_M33_BASE_URL', 'LIBRA_M33_MAIL_URL',
     'LIBRA_M33_STORAGE_ORIGIN', 'LIBRA_M33_EVIDENCE', 'LIBRA_M33_WORK', 'LIBRA_M33_ADMIN_EMAIL',
-    'LIBRA_M33_ADMIN_PASSWORD', 'DEBUG', 'DEBUG_FILE', 'PWDEBUG', 'PW_TEST_HTML_REPORT_OPEN',
+    'LIBRA_M33_ADMIN_PASSWORD', 'LIBRA_M33_RUN_ID', 'DEBUG', 'DEBUG_FILE', 'PWDEBUG', 'PW_TEST_HTML_REPORT_OPEN',
     'PLAYWRIGHT_BROWSERS_PATH') + @(
     Get-Content -Raw (Join-Path $repository 'infra/compose.yaml'), (Join-Path $PSScriptRoot 'compose.media-m29.yaml'),
         (Join-Path $PSScriptRoot 'compose.browser-m33.yaml') |
@@ -44,6 +49,7 @@ $names = @('LIBRA_M29_ADMIN_PASSWORD', 'LIBRA_M29_ENV_FILE', 'LIBRA_M33_BASE_URL
 $previous = @{}
 foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name) }
 $started = $false
+$failure = $null
 function Set-Smoke([string]$name, [string]$value) { [Environment]::SetEnvironmentVariable($name, $value) }
 function Random-Key { [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)) }
 function Pair {
@@ -92,8 +98,8 @@ try {
     }
 
     # Phase 1: the ingress's stream location and limits against a slow stand-in for Media.
-    $ingressFailed = $false
-    if (-not ($browser -or $faults)) { try {
+    $ingressError = $null
+    if (-not ($browser -or $faults -or $restart)) { try {
         & docker @ingressCompose up -d --wait --wait-timeout 60
         if ($LASTEXITCODE -ne 0) { throw 'M29 ingress check environment did not start.' }
         & docker @ingressCompose exec -T nginx nginx -t
@@ -109,11 +115,24 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Could not stop the Media stand-in.' }
         & $Python infra/smoke/ingress_m29_limits.py --base-url "http://$address" --upstream-down
         if ($LASTEXITCODE -ne 0) { throw 'M29 ingress check with Media down failed.' }
+    } catch {
+        $ingressError = $_
+        throw
     } finally {
-        & docker @ingressCompose down --volumes --rmi local --remove-orphans --timeout 5
-        $ingressFailed = $LASTEXITCODE -ne 0
+        $ingressCleanup = @()
+        try {
+            & docker @ingressCompose down --volumes --rmi local --remove-orphans --timeout 5
+            if ($LASTEXITCODE -ne 0) { throw 'Ingress Compose down failed.' }
+        } catch { $ingressCleanup += $_.Exception.Message }
+        try { Assert-ComposeProjectRemoved -Project ($project + '-ingress') }
+        catch { $ingressCleanup += $_.Exception.Message }
+        if ($ingressCleanup.Count) {
+            Remove-Evidence
+            $message = "M29 ingress check cleanup failed for project $project-ingress. " + ($ingressCleanup -join ' ')
+            if ($null -ne $ingressError) { $message = $ingressError.Exception.Message + ' Cleanup: ' + $message }
+            throw $message
+        }
     } }
-    if ($ingressFailed) { throw "M29 ingress check cleanup failed for project $project-ingress." }
 
     # Phase 2: the whole slice through the same ingress.
     $playback = Pair
@@ -175,6 +194,7 @@ try {
         Set-Smoke 'LIBRA_M33_WORK' (Join-Path $verification 'm33')
         Set-Smoke 'LIBRA_M33_ADMIN_EMAIL' $env:CORE_BOOTSTRAP_ADMIN_EMAIL
         Set-Smoke 'LIBRA_M33_ADMIN_PASSWORD' $env:LIBRA_M29_ADMIN_PASSWORD
+        if ($env:LIBRA_VERIFY_RUN_ID) { Set-Smoke 'LIBRA_M33_RUN_ID' $env:LIBRA_VERIFY_RUN_ID }
         # Node, Playwright and Chrome get only what the spec reads: every other smoke variable, the generated private
         # keys among them, is withheld for the run and restored for Compose's own cleanup.
         $withheld = @{}
@@ -192,11 +212,12 @@ try {
         }
         if ($LASTEXITCODE -ne 0) { throw 'M33 browser vertical slice failed.' }
     } else {
-        $driver = if ($faults) { 'infra/smoke/media_m34_faults.py' } else { "infra/smoke/media_m$($Milestone)_http.py" }
+        $driver = if ($restart) { 'infra/smoke/media_m36_restart.py' } elseif ($faults) { 'infra/smoke/media_m34_faults.py' } else { "infra/smoke/media_m$($Milestone)_http.py" }
         & $Python $driver --base-url "http://$ingress" --mail-url "http://$mail" --project $project
         if ($LASTEXITCODE -ne 0) { throw "M$Milestone end-to-end playback smoke failed." }
     }
 } catch {
+    $failure = $_
     Remove-Evidence
     if ($started) {
         # Local, git-ignored diagnostics. Spring can echo a rejected property value, so treat this file as secret
@@ -206,20 +227,26 @@ try {
     }
     throw
 } finally {
-    $cleanupFailed = $false
+    $cleanupMessages = @()
     if ($started) {
-        & docker @compose down --volumes --rmi local --remove-orphans --timeout 15
-        $cleanupFailed = $LASTEXITCODE -ne 0
+        try {
+            & docker @compose down --volumes --rmi local --remove-orphans --timeout 15
+            if ($LASTEXITCODE -ne 0) { throw 'Compose down failed.' }
+        } catch { $cleanupMessages += $_.Exception.Message }
+        try { Assert-ComposeProjectRemoved -Project $project }
+        catch { $cleanupMessages += $_.Exception.Message }
     }
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
     if (Test-Path -LiteralPath $emptyEnv) { Remove-Item -LiteralPath $emptyEnv }
     Pop-Location
     if (Test-Path -LiteralPath $harness) {
         Remove-Item -LiteralPath $harness -Recurse -Force -ErrorAction SilentlyContinue
-        if (Test-Path -LiteralPath $harness) { $cleanupFailed = $true }
+        if (Test-Path -LiteralPath $harness) { $cleanupMessages += 'Browser harness cleanup failed.' }
     }
-    if ($cleanupFailed) {
+    if ($cleanupMessages.Count) {
         Remove-Evidence
-        throw "M29 smoke cleanup failed for project $project; remove that project explicitly."
+        $message = "M29 smoke cleanup failed for project $project; remove that project explicitly. " + ($cleanupMessages -join ' ')
+        if ($null -ne $failure) { $message = $failure.Exception.Message + ' Cleanup: ' + $message }
+        throw $message
     }
 }

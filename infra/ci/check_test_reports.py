@@ -1,6 +1,7 @@
-"""Fail closed on missing/empty/skipped Maven suites; export counts, never raw logs."""
+"""Require passing Maven suites and report freshness after the run start; export counts only."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -17,7 +18,10 @@ REQUIRED_MEDIA_SUITES = (
 
 
 def collect(root):
-    rows = []
+    started_at = os.environ.get("LIBRA_VERIFY_STARTED_AT", "")
+    if started_at and not re.fullmatch(r"[0-9]+", started_at):
+        raise ValueError("Malformed run start: LIBRA_VERIFY_STARTED_AT")
+    reports = {}
     media_sources = set()
     for module in sorted((root / "services").iterdir()):
         for source in sorted((module / "src/test/java").rglob("*Test.java")):
@@ -31,15 +35,25 @@ def collect(root):
             report = module / f"target/{lane}-reports/TEST-{name}.xml"
             if not report.is_file():
                 raise ValueError(f"Missing {lane} report: {name}")
-            suite = ET.parse(report).getroot()
-            counts = {key: int(suite.attrib[key]) for key in ("tests", "failures", "errors", "skipped")}
-            cases = suite.findall("testcase")
-            if counts["tests"] < 1 or len(cases) != counts["tests"]:
-                raise ValueError(f"Empty or incomplete suite: {name}")
-            if any(counts[key] for key in ("failures", "errors", "skipped")) or any(
-                    case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
-                raise ValueError(f"Failed or skipped suite: {name}")
-            rows.append({"module": module.name, "lane": lane, "suite": name, **counts})
+            reports[report] = (module.name, report.parent.name.removesuffix("-reports"))
+        for lane in ("surefire", "failsafe"):
+            directory = module / f"target/{lane}-reports"
+            for report in sorted(directory.rglob("TEST-*.xml")):
+                reports[report] = (module.name, directory.name.removesuffix("-reports"))
+    rows = []
+    for report, (module, lane) in reports.items():
+        if started_at and report.stat().st_mtime_ns <= int(started_at):
+            raise ValueError(f"Stale report: {report.name}")
+        name = report.name[len("TEST-"):-len(".xml")]
+        suite = ET.parse(report).getroot()
+        counts = {key: int(suite.attrib[key]) for key in ("tests", "failures", "errors", "skipped")}
+        cases = suite.findall("testcase")
+        if counts["tests"] < 1 or len(cases) != counts["tests"]:
+            raise ValueError(f"Empty or incomplete suite: {name}")
+        if any(counts[key] for key in ("failures", "errors", "skipped")) or any(
+                case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
+            raise ValueError(f"Failed or skipped suite: {name}")
+        rows.append({"module": module, "lane": lane, "suite": name, **counts})
     for name in REQUIRED_MEDIA_SUITES:
         if name not in media_sources:
             raise ValueError(f"Missing required Media suite source: {name}")
@@ -64,9 +78,13 @@ def main(argv=None):
         counts = modules.setdefault(row["module"], {}).setdefault(row["lane"], {"suites": 0, "tests": 0})
         counts["suites"] += 1
         counts["tests"] += row["tests"]
-    summary.write_text(json.dumps({
+    evidence = {
+        "result": "TESTS_PASS",
         "suites": rows, "tests": sum(r["tests"] for r in rows), "modules": modules
-    }, indent=2) + "\n", encoding="utf-8")
+    }
+    if os.environ.get("LIBRA_VERIFY_RUN_ID") and os.environ.get("LIBRA_VERIFY_STARTED_AT"):
+        evidence.update(runId=os.environ["LIBRA_VERIFY_RUN_ID"], startedAt=os.environ["LIBRA_VERIFY_STARTED_AT"])
+    summary.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     print(f"PASS: {len(rows)} Maven suites, {sum(r['tests'] for r in rows)} tests, zero failures/errors/skips")
 
 

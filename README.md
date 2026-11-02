@@ -119,6 +119,17 @@ executed Media integration suites, including the real ffprobe, FFmpeg, socket an
 accepts only smoke evidence from the current run, deleting any file that looks like a secret before the artifact
 upload. The milestone doc is the handoff reference for configuration, startup, states, error codes, recovery and
 protected delivery.
+[Final acceptance](docs/media-final-acceptance-m36.md) closes the first Media slice. The toolchain record now names
+the git revision and tree state a run verified, and every test and smoke evidence file carries that run's identity;
+the gate fails if the tree changes during the run. Stale PASS files are deleted
+before a run, and the acceptance smokes (M30, M33, M34 and a new restart check) are gated by
+`verify-local.ps1 -Acceptance`. Smoke cleanup is proven by asking Docker for leftovers. The restart check
+(`infra/smoke/check-media-m36.ps1`) restarts a project with its volumes retained and found that Kafka lost every
+event and offset on `down`/`up`, because the image kept its log in `/tmp`; Compose now keeps it on a named volume.
+A service's database role can no longer connect to another service's database; a `postgres-data` volume
+initialized before this change keeps the old grants until it is recreated or the `REVOKE` statements in
+`infra/postgres/init/001-create-databases.sql` are run by hand. The doc maps the original acceptance scenarios to their
+evidence and separates local, browser, remote CI and deployment evidence.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d

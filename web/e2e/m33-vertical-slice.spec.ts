@@ -26,6 +26,8 @@ const baseUrl = setting("LIBRA_M33_BASE_URL");
 const mailUrl = setting("LIBRA_M33_MAIL_URL");
 const storageOrigin = setting("LIBRA_M33_STORAGE_ORIGIN");
 const evidencePath = setting("LIBRA_M33_EVIDENCE");
+// Optional, like the Python writers: set by the runner only inside a verify-local or CI run.
+const runId = process.env.LIBRA_M33_RUN_ID || undefined;
 const work = setting("LIBRA_M33_WORK");
 for (const url of [baseUrl, mailUrl, storageOrigin]) {
   if (!LOOPBACK.test(url)) {
@@ -332,6 +334,7 @@ test("M33 browser upload, publication and protected HLS playback", async ({ brow
   mkdirSync(path.dirname(evidencePath), { recursive: true });
   writeFileSync(evidencePath, JSON.stringify({
     result: "MEDIA_M33_BROWSER_PASS",
+    runId,
     checkedAt: new Date().toISOString(),
     browser: { name: "Google Chrome", channel: "chrome", version: browserVersion, headless: true },
     player: { name: "hls.js", version: started.version },

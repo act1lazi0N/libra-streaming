@@ -709,6 +709,7 @@ def main():
     evidence.parent.mkdir(parents=True, exist_ok=True)
     evidence.write_text(json.dumps({
         "result": "MEDIA_M34_FAULTS_PASS", "checkedAt": datetime.now(timezone.utc).isoformat(),
+        **({"runId": os.environ["LIBRA_VERIFY_RUN_ID"]} if os.environ.get("LIBRA_VERIFY_RUN_ID") else {}),
         "checks": m29.CHECKS, "rows": ROWS,
         "boundary": "Local disposable Compose: real compose.yaml and nginx.conf, packaged Core and Media JARs, "
                     "PostgreSQL, Kafka, Mailpit, SeaweedFS; docker stop/kill/pause as the injected faults; ffmpeg "
