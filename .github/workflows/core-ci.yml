@@ -15,7 +15,8 @@ concurrency:
 jobs:
   verify:
     name: Core and Media verification
-    runs-on: ubuntu-24.04
+    # Same Ubuntu release as the Media image's eclipse-temurin:21-jre base, so CI tests the FFmpeg production ships.
+    runs-on: ubuntu-26.04
     # Step budgets (apt 10, Maven 35, smokes 15 each) stay below this, leaving time for the always() steps.
     timeout-minutes: 80
     env:
@@ -49,11 +50,12 @@ jobs:
         run: |
           test -x "$LIBRA_FFMPEG_PATH"
           test -x "$LIBRA_FFPROBE_PATH"
-          # apt on ubuntu-24.04 (noble) is the pin; assert the major rather than float it.
+          # apt on ubuntu-26.04 (resolute) is the pin; assert the major rather than float it. FFmpeg 6 must not
+          # return: its -xerror misses decoder-thread errors, so a damaged tail exits 0 with a short rendition.
           ffmpeg_version=$("$LIBRA_FFMPEG_PATH" -version)
           ffprobe_version=$("$LIBRA_FFPROBE_PATH" -version)
-          printf '%s\n' "$ffmpeg_version" | head -n 1 | grep '^ffmpeg version 6\.'
-          printf '%s\n' "$ffprobe_version" | head -n 1 | grep '^ffprobe version 6\.'
+          printf '%s\n' "$ffmpeg_version" | head -n 1 | grep '^ffmpeg version 8\.'
+          printf '%s\n' "$ffprobe_version" | head -n 1 | grep '^ffprobe version 8\.'
       - name: Install contract validators
         run: python -m pip install -r infra/ci/requirements.txt
       - name: Check verification gate failure paths
