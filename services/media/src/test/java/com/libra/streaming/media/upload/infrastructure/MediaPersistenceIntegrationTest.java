@@ -75,17 +75,17 @@ class MediaPersistenceIntegrationTest {
         var command = command();
         persistence.ensure(command);
         assertThatThrownBy(() -> store.queue(command.uploadId(), command.assetId(), command.assetVersion(),
-                UUID.randomUUID(), Instant.now())).isInstanceOf(IllegalTransactionStateException.class);
+                UUID.randomUUID())).isInstanceOf(IllegalTransactionStateException.class);
         var template = new TransactionTemplate(transactions);
         template.executeWithoutResult(status -> {
-            store.queue(command.uploadId(), command.assetId(), command.assetVersion(), UUID.randomUUID(), Instant.now());
+            store.queue(command.uploadId(), command.assetId(), command.assetVersion(), UUID.randomUUID());
             status.setRollbackOnly();
         });
         assertThat(persistence.read(command.uploadId()).uploadState()).isEqualTo("OPEN");
         assertThat(count("media_jobs")).isZero();
         UUID jobId = UUID.randomUUID();
         template.executeWithoutResult(status ->
-                store.queue(command.uploadId(), command.assetId(), command.assetVersion(), jobId, Instant.now()));
+                store.queue(command.uploadId(), command.assetId(), command.assetVersion(), jobId));
         assertThat(persistence.read(command.uploadId()).jobId()).isEqualTo(jobId);
         assertThat(persistence.read(command.uploadId()).assetState()).isEqualTo("QUEUED");
         assertThatThrownBy(() -> jdbc.update("""
@@ -94,18 +94,24 @@ class MediaPersistenceIntegrationTest {
                 """, UUID.randomUUID(), command.uploadId())).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("UPDATE media_assets SET state = 'READY' WHERE asset_id = ? AND asset_version = 1",
                 command.assetId())).isInstanceOf(DataIntegrityViolationException.class);
-        jdbc.update("""
+        Runnable ready = () -> jdbc.update("""
                 UPDATE media_assets SET state = 'READY', selected_source_key = ?, output_prefix = ?,
                     master_manifest_key = ?, duration_seconds = 60, aggregate_version = 1
                 WHERE asset_id = ? AND asset_version = 1
                 """, "sources/" + command.assetId(), "hls/" + command.assetId(),
                 "hls/" + command.assetId() + "/master.m3u8", command.assetId());
+        // Since V5, READY commits only together with its event (checked at commit).
+        assertThatThrownBy(ready::run).isInstanceOf(DataIntegrityViolationException.class);
         UUID event = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
-                    correlation_id, payload, next_attempt_at, created_at)
-                VALUES (?, ?, 1, 1, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, event, command.assetId(), command.requestId(), "{\"state\":\"READY\"}");
+        template.executeWithoutResult(status -> {
+            ready.run();
+            jdbc.update("""
+                    INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
+                        correlation_id, payload, next_attempt_at, created_at)
+                    VALUES (?, ?, 1, 1, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, event, command.assetId(), command.requestId(), payload(command, "READY", 60));
+        });
+        assertThat(persistence.read(command.uploadId()).assetState()).isEqualTo("READY");
         assertThat(count("media_outbox_events")).isEqualTo(1);
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
@@ -141,7 +147,7 @@ class MediaPersistenceIntegrationTest {
 
         var template = new TransactionTemplate(transactions);
         var jobIds = race(() -> template.execute(status -> store.queue(command.uploadId(),
-                command.assetId(), command.assetVersion(), UUID.randomUUID(), Instant.now())));
+                command.assetId(), command.assetVersion(), UUID.randomUUID())));
         assertThat(jobIds.get(0)).isEqualTo(jobIds.get(1));
         assertThat(count("media_jobs")).isEqualTo(1);
         assertThat(persistence.read(command.uploadId()).uploadState()).isEqualTo("SUBMITTED");
@@ -166,12 +172,12 @@ class MediaPersistenceIntegrationTest {
         persistence.ensure(command);
         var template = new TransactionTemplate(transactions);
         assertThatThrownBy(() -> template.execute(status -> store.queue(command.uploadId(),
-                UUID.randomUUID(), command.assetVersion(), UUID.randomUUID(), Instant.now())))
+                UUID.randomUUID(), command.assetVersion(), UUID.randomUUID())))
                 .isInstanceOf(UploadFailure.class).hasMessage("UPLOAD_STATE_CONFLICT");
         assertThat(persistence.read(command.uploadId()).uploadState()).isEqualTo("OPEN");
 
         template.executeWithoutResult(status -> store.queue(command.uploadId(), command.assetId(),
-                command.assetVersion(), UUID.randomUUID(), Instant.now()));
+                command.assetVersion(), UUID.randomUUID()));
         assertThatThrownBy(() -> jdbc.update("UPDATE media_jobs SET stage = 'CLAIMED' WHERE upload_id = ?",
                 command.uploadId())).isInstanceOf(DataIntegrityViolationException.class);
         UUID correlation = command.requestId();
@@ -180,7 +186,7 @@ class MediaPersistenceIntegrationTest {
                     UPDATE media_assets SET state = 'PROCESSING', aggregate_version = 1
                     WHERE asset_id = ? AND asset_version = 1 AND state = 'QUEUED' AND aggregate_version = 0
                     """, command.assetId())).isEqualTo(1);
-            insertOutbox(command.assetId(), correlation, 1);
+            insertOutbox(command, correlation, 1, "PROCESSING");
         });
         assertThatThrownBy(() -> jdbc.update("""
                 UPDATE media_outbox_events SET delivery_state = 'LEASED'
@@ -195,7 +201,7 @@ class MediaPersistenceIntegrationTest {
                     UPDATE media_assets SET state = 'FAILED', aggregate_version = 2
                     WHERE asset_id = ? AND asset_version = 1 AND state = 'PROCESSING' AND aggregate_version = 1
                     """, command.assetId());
-            insertOutbox(command.assetId(), correlation, 1);
+            insertOutbox(command, correlation, 1, "PROCESSING");
         })).isInstanceOf(DataIntegrityViolationException.class);
         assertThat(jdbc.queryForObject("SELECT state FROM media_assets WHERE asset_id = ?", String.class,
                 command.assetId())).isEqualTo("PROCESSING");
@@ -236,9 +242,12 @@ class MediaPersistenceIntegrationTest {
         jdbc.update("""
                 INSERT INTO upgrade_media_m04.media_outbox_events(event_id, asset_id, asset_version,
                     aggregate_version, correlation_id, payload, next_attempt_at, created_at)
-                VALUES (?, ?, 1, 1, ?, '{"state":"PROCESSING"}'::jsonb,
-                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, UUID.randomUUID(), asset, UUID.randomUUID());
+                VALUES (?, ?, 1, 1, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, UUID.randomUUID(), asset, UUID.randomUUID(),
+                // Since V7 the upgrade refuses an event that is not the contract event of its own asset: Media has only
+                // ever written complete payloads (M23), so a database holding anything else must not start publishing.
+                "{\"contentId\":\"" + content + "\",\"bindingId\":\"" + binding + "\",\"assetId\":\"" + asset
+                        + "\",\"assetVersion\":1,\"state\":\"PROCESSING\"}");
         Flyway after = Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("upgrade_media_m04").defaultSchema("upgrade_media_m04").load();
         after.migrate();
@@ -259,12 +268,19 @@ class MediaPersistenceIntegrationTest {
                 """, asset)).isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    private void insertOutbox(UUID asset, UUID correlation, long version) {
+    private void insertOutbox(MediaPersistenceService.Ensure command, UUID correlation, long version, String state) {
         jdbc.update("""
                 INSERT INTO media_outbox_events(event_id, asset_id, asset_version, aggregate_version,
                     correlation_id, payload, next_attempt_at, created_at)
                 VALUES (?, ?, 1, ?, ?, CAST(? AS jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, UUID.randomUUID(), asset, version, correlation, "{\"state\":\"PROCESSING\"}");
+                """, UUID.randomUUID(), command.assetId(), version, correlation, payload(command, state, null));
+    }
+
+    /** The complete contract payload; since V7 the database refuses anything less. */
+    private static String payload(MediaPersistenceService.Ensure command, String state, Integer durationSeconds) {
+        return "{\"contentId\":\"" + command.contentId() + "\",\"bindingId\":\"" + command.bindingId()
+                + "\",\"assetId\":\"" + command.assetId() + "\",\"assetVersion\":1,\"state\":\"" + state + "\""
+                + (durationSeconds == null ? "" : ",\"durationSeconds\":" + durationSeconds) + "}";
     }
 
     private <T> java.util.List<T> race(Callable<T> attempt) throws Exception {

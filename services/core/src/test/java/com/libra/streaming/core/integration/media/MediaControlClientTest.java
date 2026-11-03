@@ -90,6 +90,55 @@ class MediaControlClientTest {
         assertThat(client.issueUrl(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.INVALID_RESPONSE);
     }
 
+    @Test void completionUsesWriteScopeAndAcceptsOnlyDurableQueuedStatus() throws Exception {
+        UUID job = UUID.randomUUID();
+        String queued = statusBody().replace("\"uploadState\":\"OPEN\"", "\"uploadState\":\"SUBMITTED\"")
+                .replace("\"assetState\":\"UPLOADING\"", "\"assetState\":\"QUEUED\"")
+                .replace("\"jobId\":null", "\"jobId\":\"" + job + "\"")
+                .replace("\"processing\":null", "\"processing\":" + QUEUED_JOB);
+        responder = exchange -> respond(exchange, 202, "application/json", queued);
+        Result accepted = client.complete(upload, UUID.randomUUID());
+        assertThat(accepted.failure()).isNull();
+        assertThat(accepted.value().jobId()).isEqualTo(job);
+        assertThat(method).isEqualTo("POST");
+        assertThat(cookie).isNull();
+        assertThat(SignedJWT.parse(authorization.substring(7)).getJWTClaimsSet().getStringClaim("scope"))
+                .isEqualTo("core.media.uploads:write");
+        responder = exchange -> respond(exchange, 409, "application/problem+json", "{\"code\":\"SOURCE_MISSING\"}");
+        assertThat(client.complete(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.SOURCE_MISSING);
+        responder = exchange -> respond(exchange, 200, "application/json", queued);
+        assertThat(client.complete(upload, UUID.randomUUID()).failure()).isEqualTo(Failure.UNAVAILABLE);
+    }
+
+    @Test void acceptsOnlyAConsistentProcessingViewOfASubmittedUpload() throws Exception {
+        String submitted = statusBody().replace("\"uploadState\":\"OPEN\"", "\"uploadState\":\"SUBMITTED\"")
+                .replace("\"assetState\":\"UPLOADING\"", "\"assetState\":\"PROCESSING\"")
+                .replace("\"jobId\":null", "\"jobId\":\"" + UUID.randomUUID() + "\"");
+        String retry = "{\"stage\":\"QUEUED\",\"failureStage\":\"TRANSCODING\","
+                + "\"failureCode\":\"PROCESSING_FAILED\",\"retryAt\":\"2026-10-18T10:00:00Z\"}";
+        responder = exchange -> respond(exchange, 200, "application/json",
+                submitted.replace("\"processing\":null", "\"processing\":" + retry).replace("\"unsentEvents\":0",
+                        "\"unsentEvents\":1"));
+        Result waiting = client.read(upload, UUID.randomUUID());
+        assertThat(waiting.failure()).isNull();
+        assertThat(waiting.value().processing().failureStage()).isEqualTo(JobStage.TRANSCODING);
+        assertThat(waiting.value().unsentEvents()).isEqualTo(1);
+        for (String invalid : new String[] {
+                submitted,
+                submitted.replace("\"processing\":null", "\"processing\":" + retry.replace("QUEUED\"", "CLAIMED\"")),
+                submitted.replace("\"processing\":null", "\"processing\":" + retry.replace("TRANSCODING", "QUEUED")),
+                submitted.replace("\"processing\":null", "\"processing\":"
+                        + retry.replace("PROCESSING_FAILED", "UPLOAD_EXPIRED")),
+                submitted.replace("\"processing\":null", "\"processing\":" + retry.replace("}", ",\"lease\":1}")),
+                submitted.replace("\"processing\":null", "\"processing\":" + QUEUED_JOB)
+                        .replace("\"unsentEvents\":0", "\"unsentEvents\":-1"),
+                statusBody().replace("\"processing\":null", "\"processing\":" + QUEUED_JOB)}) {
+            responder = exchange -> respond(exchange, 200, "application/json", invalid);
+            assertThat(client.read(upload, UUID.randomUUID()).failure()).as(invalid)
+                    .isEqualTo(Failure.INVALID_RESPONSE);
+        }
+    }
+
     @Test void translatesRemoteFailuresWithoutRetryOrBodyDisclosure() {
         int[] statuses = {401, 403, 404, 409, 410, 500, 503};
         Failure[] failures = {Failure.ACCESS_DENIED, Failure.ACCESS_DENIED, Failure.NOT_FOUND, Failure.CONFLICT,
@@ -233,8 +282,10 @@ class MediaControlClientTest {
 
     String statusBody() {
         return mapper.writeValueAsString(new Status(upload, intent.contentId(), intent.bindingId(), intent.assetId(), 1,
-                UploadState.OPEN, AssetState.UPLOADING, null, 0, null, intent.expiresAt()));
+                UploadState.OPEN, AssetState.UPLOADING, null, 0, null, intent.expiresAt(), null, 0));
     }
+    static final String QUEUED_JOB =
+            "{\"stage\":\"QUEUED\",\"failureStage\":null,\"failureCode\":null,\"retryAt\":null}";
     static void respond(HttpExchange exchange, int status, String type, String body) throws Exception {
         exchange.getResponseHeaders().add("Content-Type", type);
         exchange.sendResponseHeaders(status, 0);

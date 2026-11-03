@@ -5,21 +5,26 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import static com.libra.streaming.media.upload.infrastructure.MediaPersistenceService.Processing;
 import static com.libra.streaming.media.upload.infrastructure.MediaPersistenceService.Snapshot;
 
 @Repository
 class MediaUploadStore {
     private final JdbcTemplate jdbc;
     private final String stagingPrefix;
+    private final Clock clock;
 
-    MediaUploadStore(JdbcTemplate jdbc, @Value("${libra.media.storage.staging-prefix}") String stagingPrefix) {
+    MediaUploadStore(JdbcTemplate jdbc, @Value("${libra.media.storage.staging-prefix}") String stagingPrefix,
+            Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
         if (stagingPrefix == null || !stagingPrefix.matches("[a-z0-9][a-z0-9/_-]*/")
                 || stagingPrefix.contains("//")) { throw new IllegalArgumentException("Invalid staging prefix"); }
         this.stagingPrefix = stagingPrefix;
@@ -66,17 +71,20 @@ class MediaUploadStore {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    UUID queue(UUID uploadId, UUID assetId, long assetVersion, UUID jobId, Instant now) {
+    UUID queue(UUID uploadId, UUID assetId, long assetVersion, UUID jobId) {
         Snapshot current = lock(uploadId);
         if (current == null) { throw new UploadFailure("NOT_FOUND"); }
         if (!current.assetId().equals(assetId) || current.assetVersion() != assetVersion) {
             throw new UploadFailure("UPLOAD_STATE_CONFLICT");
         }
         if (current.uploadState().equals("SUBMITTED") && current.jobId() != null) { return current.jobId(); }
-        if (!current.uploadState().equals("OPEN") || !current.assetState().equals("UPLOADING")
-                || !current.expiresAt().isAfter(now)) {
+        if (current.uploadState().equals("EXPIRED")) { throw new UploadFailure("UPLOAD_EXPIRED"); }
+        if (!current.uploadState().equals("OPEN") || !current.assetState().equals("UPLOADING")) {
             throw new UploadFailure("UPLOAD_STATE_CONFLICT");
         }
+        // Sample after acquiring the row lock, including any time spent waiting.
+        Instant now = clock.instant();
+        if (!current.expiresAt().isAfter(now)) { throw new UploadFailure("UPLOAD_EXPIRED"); }
         int changed = jdbc.update("UPDATE media_uploads SET state = 'SUBMITTED', updated_at = ? WHERE id = ? AND state = 'OPEN'",
                 Timestamp.from(now), uploadId);
         changed += jdbc.update("""
@@ -86,8 +94,8 @@ class MediaUploadStore {
         if (changed != 2) { throw new UploadFailure("UPLOAD_STATE_CONFLICT"); }
         jdbc.update("""
                 INSERT INTO media_jobs(id, upload_id, next_attempt_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                """, jobId, uploadId, Timestamp.from(now), Timestamp.from(now), Timestamp.from(now));
+                VALUES (?, ?, clock_timestamp(), ?, ?)
+                """, jobId, uploadId, Timestamp.from(now), Timestamp.from(now));
         return jobId;
     }
 
@@ -97,12 +105,26 @@ class MediaUploadStore {
                 rs.getObject("asset_id", UUID.class), rs.getLong("asset_version"), rs.getLong("byte_length"),
                 rs.getString("expected_sha256"), rs.getString("request_fingerprint"), rs.getString("upload_state"),
                 rs.getString("asset_state"), rs.getObject("job_id", UUID.class), rs.getInt("attempt_count"),
-                rs.getTimestamp("expires_at").toInstant());
+                rs.getString("failure_code"), rs.getTimestamp("expires_at").toInstant(), processing(rs),
+                rs.getLong("unsent_events"));
+    }
+
+    private static Processing processing(ResultSet rs) throws SQLException {
+        if (rs.getObject("job_id") == null) { return null; }
+        var retryAt = rs.getTimestamp("retry_at");
+        return new Processing(rs.getString("job_stage"), rs.getString("failure_stage"),
+                rs.getString("job_failure_code"), retryAt == null ? null : retryAt.toInstant());
     }
 
     private static final String SELECT = """
             SELECT u.*, u.state AS upload_state, a.state AS asset_state, j.id AS job_id,
-                coalesce(j.attempt_count, 0) AS attempt_count
+                coalesce(j.attempt_count, 0) AS attempt_count,
+                CASE WHEN u.state = 'EXPIRED' THEN 'UPLOAD_EXPIRED'
+                    WHEN a.state = 'FAILED' THEN j.failure_code ELSE NULL END AS failure_code,
+                j.stage AS job_stage, j.failure_stage, j.failure_code AS job_failure_code,
+                CASE WHEN j.stage = 'QUEUED' AND j.failure_code IS NOT NULL THEN j.next_attempt_at END AS retry_at,
+                (SELECT count(*) FROM media_outbox_events e WHERE e.asset_id = u.asset_id
+                    AND e.asset_version = u.asset_version AND e.delivery_state <> 'SENT') AS unsent_events
             FROM media_uploads u
             JOIN media_assets a ON a.asset_id = u.asset_id AND a.asset_version = u.asset_version
             LEFT JOIN media_jobs j ON j.upload_id = u.id

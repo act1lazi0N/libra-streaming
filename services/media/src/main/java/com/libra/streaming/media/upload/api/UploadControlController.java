@@ -47,10 +47,20 @@ public class UploadControlController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(workflow.issueUrl(uploadId));
     }
 
+    @PostMapping("/{uploadId}/complete")
+    ResponseEntity<Status> complete(@PathVariable UUID uploadId) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).cacheControl(CacheControl.noStore())
+                .body(view(workflow.complete(uploadId)));
+    }
+
     private static Status view(UploadPersistence.UploadSnapshot snapshot) {
         return new Status(snapshot.uploadId(), snapshot.contentId(), snapshot.bindingId(), snapshot.assetId(),
                 snapshot.assetVersion(), snapshot.uploadState(), snapshot.assetState(), snapshot.jobId(),
-                snapshot.attemptCount(), null, snapshot.expiresAt());
+                snapshot.attemptCount(), snapshot.failureCode(), snapshot.expiresAt(),
+                snapshot.processing() == null ? null : new Processing(snapshot.processing().stage(),
+                        snapshot.processing().failureStage(), snapshot.processing().failureCode(),
+                        snapshot.processing().retryAt()),
+                snapshot.unsentEvents());
     }
 
     public record EnsureUpload(@NotNull UUID requestId, @NotNull UUID contentId, @NotNull UUID bindingId,
@@ -58,5 +68,6 @@ public class UploadControlController {
             @NotNull @Pattern(regexp = "[a-f0-9]{64}") String sha256, @NotNull Instant expiresAt) {}
     public record Status(UUID uploadId, UUID contentId, UUID bindingId, UUID assetId, long assetVersion,
             String uploadState, String assetState, UUID jobId, int attemptCount,
-            String failureCode, Instant expiresAt) {}
+            String failureCode, Instant expiresAt, Processing processing, long unsentEvents) {}
+    public record Processing(String stage, String failureStage, String failureCode, Instant retryAt) {}
 }

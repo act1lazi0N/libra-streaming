@@ -1,5 +1,6 @@
 package com.libra.streaming.core.integration.media;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -11,6 +12,9 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.RetryListener;
+import org.springframework.util.backoff.BackOff;
+import org.springframework.util.backoff.ExponentialBackOff;
 import org.springframework.util.backoff.FixedBackOff;
 
 @Configuration
@@ -29,11 +33,11 @@ public class MediaConsumerConfiguration {
 
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> mediaListenerFactory(
-            ConsumerFactory<String, String> consumers, KafkaTemplate<String, String> producer) {
+            ConsumerFactory<String, String> consumers, KafkaTemplate<String, String> producer, MeterRegistry metrics) {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, String>();
         factory.setConsumerFactory(consumers);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
-        factory.setCommonErrorHandler(new DefaultErrorHandler((record, exception) -> {
+        var handler = new DefaultErrorHandler((record, exception) -> {
             // A new record drops untrusted headers and raw exception text/stack traces.
             var dead = new ProducerRecord<String, String>("media.assets.v1.DLT", record.partition(),
                     (String) record.key(), (String) record.value());
@@ -44,8 +48,26 @@ public class MediaConsumerConfiguration {
             catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt(); throw new IllegalStateException("DLT delivery interrupted");
             } catch (Exception failure) { throw new IllegalStateException("DLT delivery failed"); }
-        }, new FixedBackOff(1000L, 2L)));
+        }, new FixedBackOff(1000L, 2L));
+        handler.setBackOffFunction((record, exception) -> backOffFor(exception));
+        handler.setRetryListeners(retryListener(metrics));
+        factory.setCommonErrorHandler(handler);
         return factory;
+    }
+
+    static BackOff backOffFor(Exception exception) {
+        if (MediaFailures.anyCause(exception, cause -> cause instanceof MediaEventRetryableException)) {
+            var backOff = new ExponentialBackOff(1000L, 2.0);
+            backOff.setMaxInterval(30000L);
+            return backOff;
+        }
+        return new FixedBackOff(1000L, 2L);
+    }
+
+    static RetryListener retryListener(MeterRegistry metrics) {
+        return (record, exception, deliveryAttempt) -> metrics.counter("libra.integration.media.retries", "kind",
+                MediaFailures.anyCause(exception, cause -> cause instanceof MediaEventRetryableException)
+                        ? "transient" : "poison").increment();
     }
 
     @Bean

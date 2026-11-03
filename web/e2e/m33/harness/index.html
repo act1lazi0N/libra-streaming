@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="referrer" content="no-referrer">
+    <title>LIBRA M33 browser harness</title>
+  </head>
+  <body>
+    <!-- Test-only harness for the M33 browser slice; not product UI. -->
+    <input id="source" type="file" accept="video/mp4">
+    <video id="player" muted playsinline width="640" height="360"></video>
+    <canvas id="frame" width="160" height="90" hidden></canvas>
+    <script src="hls.min.js"></script>
+    <script src="harness.js"></script>
+  </body>
+</html>

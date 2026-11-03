@@ -1,0 +1,165 @@
+package com.libra.streaming.media.processing.application;
+
+import com.libra.streaming.media.processing.domain.JobLease;
+import com.libra.streaming.media.processing.domain.ProcessingFailure;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
+/** One synchronous handler slot, one heartbeat slot, and no in-memory job backlog. */
+public final class BoundedMediaWorker implements AutoCloseable {
+    private final JobLeases leases;
+    private final MediaJobHandler handler;
+    private final Settings settings;
+    private final Consumer<String> report;
+    private final AtomicBoolean running = new AtomicBoolean();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final ScheduledExecutorService jobs = Executors.newSingleThreadScheduledExecutor(
+            task -> Thread.ofPlatform().daemon().name("media-job").unstarted(task));
+    private final ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(
+            task -> Thread.ofPlatform().daemon().name("media-lease").unstarted(task));
+
+    public BoundedMediaWorker(JobLeases leases, MediaJobHandler handler, Settings settings, Consumer<String> report) {
+        this.leases = leases;
+        this.handler = handler;
+        this.settings = settings;
+        this.report = report;
+    }
+
+    public synchronized void start() {
+        if (closed.get()) { throw new IllegalStateException("Worker is closed"); }
+        if (running.compareAndSet(false, true)) {
+            jobs.scheduleWithFixedDelay(this::poll, 0, settings.pollInterval().toMillis(), TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void poll() {
+        if (!running.get()) { return; }
+        try {
+            var asked = Validity.from(settings.leaseDuration());
+            leases.claim(settings.leaseDuration()).ifPresent(lease -> process(lease, asked));
+        } catch (RuntimeException exception) {
+            report.accept("WORKER_DATABASE_UNAVAILABLE");
+        }
+    }
+
+    private void process(JobLease lease, Validity claimed) {
+        if (!running.get()) {
+            leases.release(lease);
+            return;
+        }
+        var lost = new AtomicBoolean();
+        // M32: what this process itself knows of the lease. The heartbeat can be stuck in a renewal, or paused with
+        // the whole process, and never report the loss; once the lease duration has passed since the last claim or
+        // renewal the database confirmed, a successor may own the job, so the handler must not write again.
+        var valid = new AtomicReference<>(claimed);
+        var active = new AtomicBoolean(true);
+        Object renewalGate = new Object();
+        Thread owner = Thread.currentThread();
+        var renewal = heartbeat.scheduleWithFixedDelay(() -> {
+            synchronized (renewalGate) {
+                if (!active.get() || lost.get() || !running.get()) { return; }
+                try {
+                    var asked = Validity.from(settings.leaseDuration());
+                    if (leases.renew(lease, settings.leaseDuration())) {
+                        valid.set(asked);
+                        return;
+                    }
+                } catch (RuntimeException exception) {
+                    report.accept("WORKER_LEASE_UNAVAILABLE");
+                }
+                lost.set(true);
+                owner.interrupt();
+            }
+        }, settings.renewInterval().toMillis(), settings.renewInterval().toMillis(), TimeUnit.MILLISECONDS);
+        boolean finalized = false;
+        try {
+            MediaJobHandler.Outcome outcome;
+            try {
+                outcome = handler.process(lease, () -> !running.get() || lapsed(lost, valid));
+                if (outcome == null) { outcome = MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED); }
+            } catch (InterruptedException exception) {
+                if (!running.get() || lapsed(lost, valid)) { return; }
+                outcome = MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED);
+            } catch (RuntimeException exception) {
+                outcome = MediaJobHandler.Outcome.retry(ProcessingFailure.PROCESSING_FAILED);
+            }
+            synchronized (renewalGate) {
+                if (!running.get() || lapsed(lost, valid)) { return; }
+                // Finish any in-flight renewal before finalization. A late heartbeat cannot interrupt the next job.
+                active.set(false);
+                finalized = true;
+                // The handler committed READY (or lost the lease) itself; a second write could only be refused.
+                if (outcome.isSettled()) { return; }
+                if (outcome.permanent()) { leases.fail(lease, outcome.failure()); }
+                else { leases.retry(lease, outcome.failure(), settings.retryDelay()); }
+            }
+        } finally {
+            synchronized (renewalGate) {
+                active.set(false);
+                renewal.cancel(false);
+                Thread.interrupted();
+                // Graceful cancellation relinquishes only a still-current lease. It is not a processing failure.
+                if (!finalized && !running.get() && !lost.get()) { leases.release(lease); }
+            }
+        }
+    }
+
+    /** True once the lease is known lost or may have lapsed; a lapse is recorded as a loss. */
+    private static boolean lapsed(AtomicBoolean lost, AtomicReference<Validity> valid) {
+        if (lost.get()) { return true; }
+        if (valid.get().passed()) { lost.set(true); }
+        return lost.get();
+    }
+
+    /**
+     * How long a lease is certainly still held: the lease duration measured from just before the database was asked,
+     * so it never ends later than the database's own expiry. Both a monotonic and a wall clock are kept, because the
+     * monotonic clock may not advance while the host is suspended; either one passing ends the validity.
+     */
+    private record Validity(long monotonicUntil, Instant wallUntil) {
+        static Validity from(Duration lease) {
+            return new Validity(System.nanoTime() + lease.toNanos(), Instant.now().plus(lease));
+        }
+
+        boolean passed() { return System.nanoTime() - monotonicUntil >= 0 || !Instant.now().isBefore(wallUntil); }
+    }
+
+    @Override
+    public synchronized void close() {
+        if (!closed.compareAndSet(false, true)) { return; }
+        running.set(false);
+        jobs.shutdownNow();
+        try {
+            if (!jobs.awaitTermination(settings.shutdownTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
+                report.accept("WORKER_SHUTDOWN_TIMEOUT");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        } finally {
+            heartbeat.shutdownNow();
+        }
+        // An uncooperative handler retains no renewable authority; expiry permits another process to recover.
+    }
+
+    public record Settings(Duration pollInterval, Duration leaseDuration, Duration renewInterval,
+            Duration retryDelay, Duration shutdownTimeout) {
+        public Settings {
+            bounded(pollInterval, Duration.ofMillis(10), Duration.ofMinutes(1));
+            bounded(leaseDuration, Duration.ofMillis(100), Duration.ofMinutes(5));
+            bounded(renewInterval, Duration.ofMillis(10), leaseDuration.dividedBy(3));
+            bounded(retryDelay, Duration.ofMillis(10), Duration.ofHours(1));
+            bounded(shutdownTimeout, Duration.ofMillis(10), Duration.ofSeconds(30));
+        }
+        private static void bounded(Duration value, Duration min, Duration max) {
+            if (value == null || value.compareTo(min) < 0 || value.compareTo(max) > 0) {
+                throw new IllegalArgumentException("Invalid worker timing");
+            }
+        }
+    }
+}

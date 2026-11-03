@@ -326,10 +326,7 @@ class CatalogProfilesIntegrationTest {
 
     @Test
     void kafkaDeliveryReplayRestartAndPoisonInputUseDurableProjectionAndDeadLetters() throws Exception {
-        try (var adminClient = AdminClient.create(Map.of("bootstrap.servers", KAFKA.getBootstrapServers()))) {
-            adminClient.createTopics(List.of(new NewTopic("media.assets.v1", 1, (short) 1),
-                    new NewTopic("media.assets.v1.DLT", 1, (short) 1))).all().get(15, TimeUnit.SECONDS);
-        }
+        mediaTopics();
         var movie = catalog.bind(admin, create(Kind.MOVIE, null, null, "Kafka").id(), new Bind(1, UUID.randomUUID(), 1));
         var binding = movie.candidate();
         var event = event(binding, 2, MediaState.READY);
@@ -362,6 +359,72 @@ class CatalogProfilesIntegrationTest {
             assertThat(jdbc.queryForObject("SELECT count(*) FROM media_projection_receipts WHERE binding_id = ?", Integer.class, binding.id())).isEqualTo(2);
             assertThat(catalog.get(admin, movie.id()).published()).isNull();
         } finally { listener.stop(); }
+    }
+
+    @Test
+    void mediaWireRecordsExactlyAsMediaPublishesThemProjectAndGatePublication() throws Exception {
+        // contracts/events/examples holds the records Media's outbox relay is verified to publish (M25).
+        mediaTopics();
+        var movie = catalog.bind(admin, create(Kind.MOVIE, null, null, "Wire").id(), new Bind(1, UUID.randomUUID(), 1));
+        var rejected = catalog.bind(admin, create(Kind.MOVIE, null, null, "Wire failure").id(), new Bind(1, UUID.randomUUID(), 1));
+        var ready = wire("ready", movie.candidate());
+        var listener = listeners.getListenerContainer("core-media-assets");
+        listener.start();
+        try {
+            send(movie.candidate(), wire("processing", movie.candidate()));
+            send(movie.candidate(), ready);
+            send(movie.candidate(), ready); // at-least-once delivery repeats an event under its own event ID
+            send(rejected.candidate(), wire("processing", rejected.candidate()));
+            send(rejected.candidate(), wire("failed", rejected.candidate()));
+            // One partition: once the last record is projected, every earlier one has been handled.
+            await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
+                    assertThat(catalog.get(admin, rejected.id()).candidate().state()).isEqualTo("FAILED"));
+        } finally { listener.stop(); }
+        var candidate = catalog.get(admin, movie.id()).candidate();
+        assertThat(candidate.state()).isEqualTo("READY");
+        assertThat(candidate.projectionVersion()).isEqualTo(2);
+        assertThat(candidate.durationSeconds()).isEqualTo(7);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_projection_receipts WHERE binding_id = ?", Integer.class,
+                candidate.id())).isEqualTo(2);
+        assertThat(catalog.get(admin, rejected.id()).candidate().durationSeconds()).isNull();
+        // Readiness alone publishes nothing; the administrator still publishes explicitly.
+        assertThat(catalog.get(admin, movie.id()).published()).isNull();
+        assertThat(publish(catalog.get(admin, movie.id())).active().id()).isEqualTo(candidate.id());
+        var failed = catalog.get(admin, rejected.id());
+        assertThatThrownBy(() -> publish(failed)).hasMessage("MEDIA_NOT_READY");
+    }
+
+    private void mediaTopics() throws Exception {
+        try (var adminClient = AdminClient.create(Map.of("bootstrap.servers", KAFKA.getBootstrapServers()))) {
+            var existing = adminClient.listTopics().names().get(15, TimeUnit.SECONDS);
+            var missing = new ArrayList<NewTopic>();
+            for (var topic : List.of("media.assets.v1", "media.assets.v1.DLT")) {
+                if (!existing.contains(topic)) { missing.add(new NewTopic(topic, 1, (short) 1)); }
+            }
+            if (!missing.isEmpty()) { adminClient.createTopics(missing).all().get(15, TimeUnit.SECONDS); }
+        }
+    }
+
+    /** A shared Media wire example with this binding's identities; a fresh event ID per call. */
+    private String wire(String name, Binding binding) throws Exception {
+        java.nio.file.Path examples = null;
+        for (var directory = java.nio.file.Path.of("").toAbsolutePath(); directory != null && examples == null;
+                directory = directory.getParent()) {
+            var candidate = directory.resolve("contracts/events/examples");
+            if (java.nio.file.Files.isDirectory(candidate)) { examples = candidate; }
+        }
+        assertThat(examples).as("contracts/events/examples").isNotNull();
+        return java.nio.file.Files.readString(examples.resolve("media-asset-state.v1." + name + ".json"))
+                .replace("{{eventId}}", UUID.randomUUID().toString())
+                .replace("{{assetId}}", binding.assetId().toString())
+                .replace("{{contentId}}", binding.contentId().toString())
+                .replace("{{bindingId}}", binding.id().toString())
+                .replace("{{correlationId}}", UUID.randomUUID().toString())
+                .replace("{{occurredAt}}", Instant.now().toString());
+    }
+
+    private void send(Binding binding, String value) throws Exception {
+        kafka.send("media.assets.v1", binding.assetId().toString(), value).get(15, TimeUnit.SECONDS);
     }
 
     private IdentityPrincipal actor(String role) {

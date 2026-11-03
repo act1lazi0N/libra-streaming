@@ -57,7 +57,7 @@ Maven does not load `.env`. Set process environment explicitly for host runs;
 use secret injection and a separate deployment configuration outside local Compose.
 Never use shell evaluation to load an untrusted `.env` file.
 
-Flyway applies V1–V7 on startup and validates checksums. Hibernate validates the
+Flyway applies V1–V8 on startup and validates checksums. Hibernate validates the
 schema; Flyway clean is disabled. Back up and restore each service database
 separately. Changing the workstation PostgreSQL password after its data volume
 was initialized does not recreate roles or update existing passwords.

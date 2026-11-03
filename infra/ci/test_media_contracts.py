@@ -35,13 +35,15 @@ class MediaContractExamplesTest(unittest.TestCase):
         media_status = {"uploadId": UPLOAD, "contentId": CONTENT, "bindingId": BINDING,
                         "assetId": ASSET, "assetVersion": 1, "uploadState": "OPEN",
                         "assetState": "UPLOADING", "jobId": None, "attemptCount": 0,
-                        "failureCode": None, "expiresAt": EXPIRES}
+                        "failureCode": None, "expiresAt": EXPIRES, "processing": None, "unsentEvents": 0}
         core_status = {**media_status, "catalogVersionAtReservation": 5}
         self.assertEqual([], errors(CORE["components"]["schemas"]["CreateUpload"], create))
         self.assertEqual([], errors(MEDIA["components"]["schemas"]["EnsureUpload"], ensure))
         self.assertEqual([], errors(MEDIA["components"]["schemas"]["MediaStatus"], media_status))
         self.assertEqual([], errors(CORE["components"]["schemas"]["UploadStatus"], core_status))
-        queued = {**media_status, "uploadState": "SUBMITTED", "assetState": "QUEUED", "jobId": JOB}
+        job = {"stage": "QUEUED", "failureStage": None, "failureCode": None, "retryAt": None}
+        queued = {**media_status, "uploadState": "SUBMITTED", "assetState": "QUEUED", "jobId": JOB,
+                  "processing": job}
         self.assertEqual([], errors(MEDIA["components"]["schemas"]["MediaStatus"], queued))
         self.assertEqual([], errors(CORE["components"]["schemas"]["UploadStatus"], {**queued, "catalogVersionAtReservation": 5}))
         expired = {**media_status, "uploadState": "EXPIRED", "assetState": "FAILED",
@@ -49,6 +51,33 @@ class MediaContractExamplesTest(unittest.TestCase):
         self.assertEqual([], errors(MEDIA["components"]["schemas"]["MediaStatus"], expired))
         self.assertTrue(errors(MEDIA["components"]["schemas"]["MediaStatus"],
                                {**queued, "jobId": None}))
+
+    def test_m31_processing_view(self):
+        status = MEDIA["components"]["schemas"]["MediaStatus"]
+        base = {"uploadId": UPLOAD, "contentId": CONTENT, "bindingId": BINDING, "assetId": ASSET,
+                "assetVersion": 1, "uploadState": "SUBMITTED", "assetState": "PROCESSING", "jobId": JOB,
+                "attemptCount": 1, "failureCode": None, "expiresAt": EXPIRES, "unsentEvents": 1}
+        retry = {"stage": "QUEUED", "failureStage": "TRANSCODING", "failureCode": "PROCESSING_FAILED",
+                 "retryAt": "2026-09-24T08:40:00Z"}
+        failed = {**base, "assetState": "FAILED", "failureCode": "CORRUPT_INPUT",
+                  "processing": {"stage": "FAILED_PERMANENT", "failureStage": "SOURCE_SELECTED",
+                                 "failureCode": "CORRUPT_INPUT", "retryAt": None}}
+        for valid in ({**base, "processing": retry}, failed,
+                      {**base, "processing": {**retry, "failureStage": None}}):
+            self.assertEqual([], errors(status, valid))
+            self.assertEqual([], errors(CORE["components"]["schemas"]["UploadStatus"],
+                                        {**valid, "catalogVersionAtReservation": 5}))
+        for invalid in ({**base, "processing": None},
+                        {**base, "processing": {**retry, "stage": "CLAIMED"}},
+                        {**base, "processing": {**retry, "failureCode": None}},
+                        {**base, "processing": {**retry, "failureStage": "QUEUED"}},
+                        {**base, "processing": {**retry, "failureCode": "UPLOAD_EXPIRED"}},
+                        {**base, "processing": {**retry, "leaseToken": JOB}},
+                        {**base, "processing": retry, "unsentEvents": -1},
+                        {key: value for key, value in base.items() if key != "unsentEvents"} | {"processing": retry},
+                        {**base, "uploadState": "EXPIRED", "assetState": "FAILED", "jobId": None,
+                         "attemptCount": 0, "failureCode": "UPLOAD_EXPIRED", "processing": retry}):
+            self.assertTrue(errors(status, invalid), invalid)
 
     def test_url_and_problem_examples(self):
         url = {"uploadId": UPLOAD, "method": "PUT",

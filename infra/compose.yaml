@@ -33,6 +33,16 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # The image's default is /tmp/kraft-combined-logs inside the container, lost whenever it is recreated.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      # Unacknowledged events and consumer offsets must survive `down`/`up`, as the databases do; the image's own
+      # anonymous data volume would be replaced on recreation.
+      - kafka-data:/var/lib/kafka/data
+    tmpfs:
+      # The image's unused SSL and override-config volumes would otherwise be left behind as unlabeled volumes.
+      - /etc/kafka/secrets
+      - /mnt/shared/config
     ports:
       - "127.0.0.1:9092:19092"
     healthcheck:
@@ -120,6 +130,8 @@ services:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
       mailpit: { condition: service_healthy }
+    # M34: a process that exits (a crash, or a startup refused while a dependency is down) comes back on its own.
+    restart: unless-stopped
 
   media:
     profiles: ["full"]
@@ -132,6 +144,14 @@ services:
       MEDIA_CORE_SERVICE_AUTH_ENABLED: ${MEDIA_CORE_SERVICE_AUTH_ENABLED:-false}
       MEDIA_CORE_SERVICE_PUBLIC_KEY: ${CORE_MEDIA_CONTROL_PUBLIC_KEY:-}
       MEDIA_CORE_SERVICE_KEY_ID: ${CORE_MEDIA_CONTROL_KEY_ID:-}
+      MEDIA_PLAYBACK_ENABLED: ${MEDIA_PLAYBACK_ENABLED:-false}
+      MEDIA_PLAYBACK_PUBLIC_KEY: ${CORE_PLAYBACK_PUBLIC_KEY:-}
+      MEDIA_PLAYBACK_KEY_ID: ${CORE_PLAYBACK_KEY_ID:-}
+      MEDIA_PLAYBACK_SECURE_COOKIE: ${CORE_COOKIE_SECURE:-true}
+      # s3-gateway allows 8 connections per client: keep streams below it, with room for the worker's own transfers.
+      MEDIA_DELIVERY_MAX_STREAMS: ${MEDIA_DELIVERY_MAX_STREAMS:-6}
+      MEDIA_DELIVERY_MAX_STREAMS_PER_SESSION: ${MEDIA_DELIVERY_MAX_STREAMS_PER_SESSION:-4}
+      MEDIA_DELIVERY_TRANSFER_TIMEOUT: ${MEDIA_DELIVERY_TRANSFER_TIMEOUT:-60s}
       MEDIA_CORE_BINDING_ENABLED: ${MEDIA_CORE_BINDING_ENABLED:-false}
       MEDIA_CORE_BINDING_BASE_URL: http://core:8081
       MEDIA_CORE_BINDING_PRIVATE_KEY: ${MEDIA_CORE_BINDING_PRIVATE_KEY:-}
@@ -156,16 +176,25 @@ services:
       MEDIA_S3_ALLOW_HTTP: true
       MEDIA_STORAGE_INITIALIZE_BUCKETS: ${MEDIA_STORAGE_INITIALIZE_BUCKETS:-false}
       MEDIA_STORAGE_PROBE_ON_STARTUP: false
+      MEDIA_FFPROBE_PATH: /usr/bin/ffprobe
+      MEDIA_FFMPEG_PATH: /usr/bin/ffmpeg
+      # The worker runs probe, transcode and finalization (M15-M24); without it an upload never leaves QUEUED.
+      MEDIA_WORKER_ENABLED: ${MEDIA_WORKER_ENABLED:-true}
+      MEDIA_OUTBOX_ENABLED: ${MEDIA_OUTBOX_ENABLED:-true}
+      # M31: expires abandoned uploads and deletes the objects settled uploads no longer select.
+      MEDIA_LIFECYCLE_ENABLED: ${MEDIA_LIFECYCLE_ENABLED:-true}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     read_only: true
     tmpfs:
-      - /tmp:rw,nosuid,noexec,size=536870912,mode=1777
+      - /tmp:rw,nosuid,noexec,size=805306368,mode=1777
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
       s3-gateway: { condition: service_started }
+    # Startup refuses while storage is unreachable (bucket check); restarting converges once it returns (M34).
+    restart: unless-stopped
 
   recommendation-analytics:
     profiles: ["full"]
@@ -178,18 +207,20 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
+    restart: unless-stopped
 
   web:
     profiles: ["full"]
     build: { context: ../web }
     environment:
       NODE_ENV: production
+    restart: unless-stopped
 
   nginx:
     profiles: ["full"]
     image: nginx:1.29.3-alpine
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -197,9 +228,11 @@ services:
       - media
       - recommendation-analytics
       - web
+    restart: unless-stopped
 
 volumes:
   postgres-data:
+  kafka-data:
   seaweedfs-data:
 
 networks:

@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
@@ -61,7 +62,14 @@ class MediaStorageConfiguration {
     }
 
     @Bean
-    S3MediaStorage mediaStorage(S3Client client, MediaStorageProperties properties) throws java.io.IOException {
+    MediaStorageLayout mediaStorageLayout(JdbcTemplate jdbc, MediaStorageProperties properties) {
+        return new MediaStorageLayout(jdbc, properties);
+    }
+
+    /** Depends on the layout check, so no adapter reaches storage under a layout other than the recorded one. */
+    @Bean
+    S3MediaStorage mediaStorage(S3Client client, MediaStorageProperties properties, MediaStorageLayout layout)
+            throws java.io.IOException {
         return new S3MediaStorage(client, properties);
     }
 

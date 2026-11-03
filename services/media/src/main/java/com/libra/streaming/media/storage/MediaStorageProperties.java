@@ -86,7 +86,9 @@ public record MediaStorageProperties(String internalEndpoint, String browserEndp
     }
 
     private static void prefix(String value, String label) {
-        if (value == null || !value.matches("[a-z0-9][a-z0-9/_-]*/") || value.contains("//")) {
+        // At most 255 characters, the width V9 records it in.
+        if (value == null || value.length() > 255 || !value.matches("[a-z0-9][a-z0-9/_-]*/")
+                || value.contains("//")) {
             throw invalid(label + " is invalid");
         }
     }

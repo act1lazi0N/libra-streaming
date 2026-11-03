@@ -42,7 +42,9 @@ def submitted_status(contract):
     status = {"uploadId": UPLOAD, "contentId": CONTENT, "bindingId": BINDING,
               "assetId": ASSET, "assetVersion": 1, "uploadState": "SUBMITTED",
               "assetState": "QUEUED", "jobId": JOB, "attemptCount": 0,
-              "failureCode": None, "expiresAt": "2026-09-24T09:00:00Z"}
+              "failureCode": None, "expiresAt": "2026-09-24T09:00:00Z",
+              "processing": {"stage": "QUEUED", "failureStage": None, "failureCode": None, "retryAt": None},
+              "unsentEvents": 0}
     if contract == "core":
         status["catalogVersionAtReservation"] = 5
     return status

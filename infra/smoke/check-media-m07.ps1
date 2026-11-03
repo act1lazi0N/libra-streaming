@@ -43,7 +43,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'M07 Nginx configuration failed validation' }
     $address = (& docker compose -p $project -f $compose port nginx 80) -join ''
     if ($LASTEXITCODE -ne 0 -or -not $address.StartsWith('127.0.0.1:')) { throw 'M07 fixture must bind loopback' }
-    $baseline = Invoke-WebRequest "http://$address/api/media/unprotected-probe" -SkipHttpErrorCheck -TimeoutSec 5
+    $baseline = Invoke-WebRequest "http://$address/api/media/actuator/health" -SkipHttpErrorCheck -TimeoutSec 5
     if ($baseline.StatusCode -ne 418) { throw 'M07 upstream control probe did not reach the stub' }
     $count = 0
     foreach ($method in @('GET', 'PUT', 'POST', 'DELETE')) {

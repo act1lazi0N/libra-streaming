@@ -1,16 +1,21 @@
 openapi: 3.1.0
 info:
   title: LIBRA Media private upload control
-  version: 1.0.0
+  version: 1.1.0
   description: >-
-    M11 implements private ensure, status read and signed upload URL issuance;
-    completion remains planned. The private Core service
+    Implements private ensure, status read, signed upload URL issuance, and
+    durable completion admission hardened in M14. The private Core service
     JWT uses a dedicated RSA key, RS256 and configured kid; exact issuer
     libra-core-services, subject libra-core, sole audience libra-media-internal,
     purpose service-access, nonblank jti of at most 128 characters, iat and exp,
     zero leeway and at most 60 seconds lifetime. Upload control and
     playback/identity credentials are never interchangeable. Public ingress must
-    block /api/media/internal/ before these routes are enabled.
+    block /api/media/internal/ before these routes are enabled. 1.1.0 (M31)
+    adds the processing view and unsentEvents to MediaStatus, and Media now
+    expires an OPEN upload at its deadline itself (EXPIRED, asset FAILED with
+    its FAILED event). Core's client rejects unknown and missing fields, so a
+    1.0.0 peer and a 1.1.0 peer refuse each other's status in both directions:
+    Core and Media are deployed together.
 servers:
   - url: http://media:8082
 security:
@@ -28,7 +33,7 @@ paths:
         '404': [NOT_FOUND]
         '409': [IDEMPOTENCY_CONFLICT, UPLOAD_STATE_CONFLICT]
         '410': [UPLOAD_EXPIRED]
-        '503': [CORE_UNAVAILABLE]
+        '503': [CORE_UNAVAILABLE, MEDIA_UNAVAILABLE]
       description: >-
         Requires core.media.uploads:write. Media verifies the binding through
         Core's existing private binding-read contract, including candidate=true
@@ -62,6 +67,7 @@ paths:
         '401': [AUTHENTICATION_REQUIRED]
         '403': [ACCESS_DENIED]
         '404': [NOT_FOUND]
+        '503': [MEDIA_UNAVAILABLE]
       description: Requires core.media.uploads:read.
       parameters:
         - $ref: '#/components/parameters/UploadId'
@@ -84,7 +90,7 @@ paths:
         '404': [NOT_FOUND]
         '409': [UPLOAD_STATE_CONFLICT]
         '410': [UPLOAD_EXPIRED]
-        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE]
+        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE, MEDIA_UNAVAILABLE]
       description: >-
         Requires core.media.uploads:write. URL lifetime is at most 15 minutes
         and never exceeds the original one-hour session expiry. Reissue does not
@@ -94,6 +100,8 @@ paths:
         and checksum bind the payload; GET, HEAD, DELETE and listing are not granted.
         Expiry rejects new requests but does not cancel an already admitted write.
         Completion and cleanup must not infer immutability from expiry alone.
+        Media rechecks OPEN and expiry after signing before returning the grant.
+        A concurrent completion after that check cannot revoke the existing grant.
       parameters:
         - $ref: '#/components/parameters/UploadId'
       responses:
@@ -118,13 +126,17 @@ paths:
         '404': [NOT_FOUND]
         '409': [UPLOAD_STATE_CONFLICT, SOURCE_MISSING]
         '410': [UPLOAD_EXPIRED]
-        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE]
+        '503': [CORE_UNAVAILABLE, STORAGE_UNAVAILABLE, MEDIA_UNAVAILABLE]
       description: >-
         Requires core.media.uploads:write. A duplicate after SUBMITTED returns
         the same job even if the original session expiry has passed. The worker
         independently verifies bytes and SHA-256 before selecting immutable source.
         A first completion rechecks the exact current Core candidate; a duplicate
         completion reads the already committed job without creating more work.
+        First admission checks expiry after acquiring the upload row lock.
+        A database failure returns sanitized 503 MEDIA_UNAVAILABLE. If the
+        response is lost after commit, retrying returns the original durable job
+        without increasing attemptCount. Acceptance does not freeze staging.
       parameters:
         - $ref: '#/components/parameters/UploadId'
       responses:
@@ -164,7 +176,7 @@ components:
     MediaStatus:
       type: object
       additionalProperties: false
-      required: [uploadId, contentId, bindingId, assetId, assetVersion, uploadState, assetState, jobId, attemptCount, failureCode, expiresAt]
+      required: [uploadId, contentId, bindingId, assetId, assetVersion, uploadState, assetState, jobId, attemptCount, failureCode, expiresAt, processing, unsentEvents]
       properties:
         uploadId: { type: string, format: uuid }
         contentId: { type: string, format: uuid }
@@ -179,6 +191,37 @@ components:
           type: [string, 'null']
           enum: [null, UPLOAD_EXPIRED, SOURCE_MISSING, SIZE_MISMATCH, CHECKSUM_MISMATCH, UNSUPPORTED_MEDIA, CORRUPT_INPUT, PROCESSING_FAILED, RETRY_EXHAUSTED]
         expiresAt: { type: string, format: date-time }
+        processing:
+          description: >-
+            Added in 1.1.0 (M31). The job behind a submitted upload, null before
+            submission and for an expired upload. stage is the job's current stage;
+            failureStage and failureCode are its last recorded failure (a pending
+            retry, or the terminal failure), and retryAt is when a pending retry is
+            due. Values are fixed codes: never a key, lease, URL or exception text.
+            failureStage is null for a failure recorded before M31.
+          type: [object, 'null']
+          additionalProperties: false
+          required: [stage, failureStage, failureCode, retryAt]
+          properties:
+            stage: { type: string, enum: [QUEUED, CLAIMED, SOURCE_SELECTED, TRANSCODING, FINALIZING, SUCCEEDED, FAILED_PERMANENT, EXHAUSTED] }
+            failureStage:
+              type: [string, 'null']
+              enum: [null, CLAIMED, SOURCE_SELECTED, TRANSCODING, FINALIZING]
+            failureCode:
+              type: [string, 'null']
+              enum: [null, SOURCE_MISSING, SIZE_MISMATCH, CHECKSUM_MISMATCH, UNSUPPORTED_MEDIA, CORRUPT_INPUT, PROCESSING_FAILED, RETRY_EXHAUSTED]
+            retryAt: { type: [string, 'null'], format: date-time }
+          allOf:
+            - if: { properties: { failureStage: { type: string } } }
+              then: { properties: { failureCode: { type: string } } }
+            - if: { properties: { retryAt: { type: string } } }
+              then: { properties: { stage: { const: QUEUED }, failureCode: { type: string } } }
+        unsentEvents:
+          description: >-
+            Added in 1.1.0 (M31). MediaAssetStateChanged events of this asset
+            version that Media has recorded but Kafka has not yet acknowledged.
+          type: integer
+          minimum: 0
       allOf:
         - if: { properties: { uploadState: { const: OPEN } } }
           then:
@@ -187,11 +230,13 @@ components:
               jobId: { type: 'null' }
               attemptCount: { const: 0 }
               failureCode: { type: 'null' }
+              processing: { type: 'null' }
         - if: { properties: { uploadState: { const: SUBMITTED } } }
           then:
             properties:
               assetState: { enum: [QUEUED, PROCESSING, READY, FAILED] }
               jobId: { type: string, format: uuid }
+              processing: { type: object }
         - if: { properties: { uploadState: { const: EXPIRED } } }
           then:
             properties:
@@ -199,6 +244,7 @@ components:
               jobId: { type: 'null' }
               attemptCount: { const: 0 }
               failureCode: { const: UPLOAD_EXPIRED }
+              processing: { type: 'null' }
         - if: { properties: { assetState: { const: FAILED } } }
           then:
             properties:
@@ -231,7 +277,7 @@ components:
         Sanitized Problem Details. 400 INVALID_REQUEST; 401 invalid service token;
         403 wrong scope; 404 missing upload or mismatched Core binding;
         409 IDEMPOTENCY_CONFLICT, SOURCE_MISSING or UPLOAD_STATE_CONFLICT;
-        410 UPLOAD_EXPIRED; 503 CORE_UNAVAILABLE or STORAGE_UNAVAILABLE.
+        410 UPLOAD_EXPIRED; 503 CORE_UNAVAILABLE, STORAGE_UNAVAILABLE or MEDIA_UNAVAILABLE.
         Failure never reports a signed URL, object key or raw exception.
       content:
         application/problem+json:

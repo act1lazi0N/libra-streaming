@@ -39,13 +39,17 @@ public class MediaControlClient {
                 .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     }
 
-    public Result read(UUID uploadId, UUID correlationId) { return exchange(uploadId, null, correlationId); }
+    public Result read(UUID uploadId, UUID correlationId) { return exchange(uploadId, null, correlationId, false); }
 
     public Result ensure(UUID uploadId, EnsureUpload intent, UUID correlationId) {
         if (intent == null || !validator.validate(intent).isEmpty()) {
             throw new IllegalArgumentException("Valid committed upload context is required");
         }
-        return exchange(uploadId, intent, correlationId);
+        return exchange(uploadId, intent, correlationId, false);
+    }
+
+    public Result complete(UUID uploadId, UUID correlationId) {
+        return exchange(uploadId, null, correlationId, true);
     }
 
     public GrantResult issueUrl(UUID uploadId, UUID correlationId) {
@@ -102,25 +106,29 @@ public class MediaControlClient {
         }
     }
 
-    private Result exchange(UUID uploadId, EnsureUpload intent, UUID correlationId) {
+    private Result exchange(UUID uploadId, EnsureUpload intent, UUID correlationId, boolean complete) {
         if (uploadId == null || correlationId == null) { throw new IllegalArgumentException("Operation identity is required"); }
         if (!properties.enabled()) { return Result.failed(Failure.DISABLED); }
         if (!inFlight.tryAcquire()) { return Result.failed(Failure.UNAVAILABLE); }
         long deadline = System.nanoTime() + BUDGET.toNanos();
         CompletableFuture<HttpResponse<byte[]>> pending = null;
         try {
-            var request = HttpRequest.newBuilder(properties.origin().resolve("/internal/v1/uploads/" + uploadId))
-                    .timeout(BUDGET).header("Authorization", "Bearer " + tokens.issue(intent == null ? Scope.READ : Scope.WRITE))
+            var request = HttpRequest.newBuilder(properties.origin().resolve("/internal/v1/uploads/" + uploadId
+                    + (complete ? "/complete" : "")))
+                    .timeout(BUDGET).header("Authorization", "Bearer " + tokens.issue(
+                            intent == null && !complete ? Scope.READ : Scope.WRITE))
                     .header("Accept", "application/json").header("X-Correlation-ID", correlationId.toString());
-            if (intent == null) { request.GET(); }
+            if (complete) { request.POST(HttpRequest.BodyPublishers.noBody()); }
+            else if (intent == null) { request.GET(); }
             else { request.header("Content-Type", "application/json").PUT(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(intent))); }
             pending = http.sendAsync(request.build(), ignored -> new LimitedMediaBodySubscriber());
             var response = pending.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
-            if (response.statusCode() != 200 && !(intent != null && response.statusCode() == 201)) {
+            if (response.statusCode() != (complete ? 202 : 200)
+                    && !(intent != null && response.statusCode() == 201)) {
                 return Result.failed(switch (response.statusCode()) {
                     case 401, 403 -> Failure.ACCESS_DENIED;
                     case 404 -> Failure.NOT_FOUND;
-                    case 409 -> Failure.CONFLICT;
+                    case 409 -> complete && sourceMissing(response.body()) ? Failure.SOURCE_MISSING : Failure.CONFLICT;
                     case 410 -> Failure.EXPIRED;
                     default -> Failure.UNAVAILABLE;
                 });
@@ -150,6 +158,11 @@ public class MediaControlClient {
             if (pending != null && !pending.isDone()) { pending.cancel(true); }
             inFlight.release();
         }
+    }
+    private boolean sourceMissing(byte[] body) {
+        try {
+            return "SOURCE_MISSING".equals(mapper.readTree(body).path("code").asString());
+        } catch (RuntimeException exception) { return false; }
     }
     @PreDestroy void close() { http.shutdownNow(); }
 }

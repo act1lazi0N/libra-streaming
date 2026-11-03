@@ -75,8 +75,9 @@ Core sets `__Secure-LIBRA_PLAYBACK` as HttpOnly, Secure, SameSite=Lax, with no D
 and Path `/api/media/v1/streams/{sessionId}/`. Explicit loopback development uses
 `LIBRA_PLAYBACK` without Secure, following the existing identity cookie setting.
 The browser needs Core and Media behind the same ingress origin. The returned path
-is `/api/media/v1/streams/{sessionId}/master.m3u8`; Nginx's existing `/api/media/`
-mapping forwards it as `/v1/streams/{sessionId}/master.m3u8` to Media.
+is `/api/media/v1/streams/{sessionId}/master.m3u8`; Nginx's exact stream location
+forwards it as `/v1/streams/{sessionId}/master.m3u8` to Media (since M30 nothing else
+beneath `/api/media/` but Media's health is forwarded).
 
 Media must verify signature/algorithm/key ID, issuer, audience, purpose, required
 claims, strict expiry (including equality), maximum lifetime, session path and exact
@@ -87,8 +88,11 @@ traversal. Playlists must use relative, credential-free resource paths beneath t
 same session prefix. Private storage keys are resolved by Media, never by browser
 input. No public storage fallback or shared cache may bypass ticket checks.
 
-No production Media verifier or HLS routes are delivered here. The test verifier is
+Milestone 05 delivered no production Media verifier or HLS routes; its test verifier is
 an independent contract fixture for signed tokens, not proof of segment delivery.
+Media's verifier and stream routes arrived later
+([Media protected delivery](media-protected-delivery-m27.md) through
+[Media verification and handoff](media-verification-handoff-m35.md)).
 Tickets are bearer credentials: session end, history clear, deletion and revocation
 cannot revoke an already copied ticket immediately. Delivery must stop by ticket
 expiry, within five minutes (sooner when capped). End clears the current browser's

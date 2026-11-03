@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--browser-port", type=int, required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--compose-file", required=True)
-    parser.add_argument("--scenario", choices=("M11", "M12"), default="M11")
+    parser.add_argument("--scenario", choices=("M11", "M12", "M13"), default="M11")
     args = parser.parse_args()
     require(re.fullmatch(r"libra-m11-[a-f0-9]{12}", args.project), "Expected isolated project")
     require(Path(args.compose_file).resolve() == ROOT / "infra/smoke/compose.media-m11.yaml",
@@ -106,6 +106,17 @@ def main():
     second, _ = admin.request("POST", f"/v1/admin/uploads/{upload_id}/upload-url", status=200)
     require(second["uploadId"] == upload_id and second["expiresAt"] <= created["expiresAt"],
             "Reissue changed the session identity or expiry")
+    if args.scenario == "M13":
+        complete_path = f"/v1/admin/uploads/{upload_id}/complete"
+        try:
+            urllib.request.urlopen(urllib.request.Request(args.core_url + complete_path, method="POST"), timeout=5)
+            raise RuntimeError("Anonymous completion was accepted")
+        except urllib.error.HTTPError as error:
+            require(error.code in (401, 403), "Anonymous completion was not denied")
+        missing, _ = admin.request("POST", complete_path, status=409)
+        require(missing["code"] == "SOURCE_MISSING", "Missing staging error changed")
+        require(sql("libra_media", "SELECT count(*) FROM media_jobs") == "0",
+                "Missing staging object created a processing job")
 
     page = """<!doctype html><main id='status'>pending</main><script>
     const grant = GRANT;
@@ -176,6 +187,26 @@ def main():
     if args.scenario == "M12":
         from media_m12_http import check_hardening
         hardening = check_hardening(admin, upload_path, movie, upload_id, grant, clip, sql)
+    if args.scenario == "M13":
+        queued, completion_headers = admin.request("POST", complete_path, status=202)
+        require(completion_headers.get("Cache-Control") == "no-store", "Completion response was cacheable")
+        require(queued["uploadId"] == upload_id and queued["uploadState"] == "SUBMITTED"
+                and queued["assetState"] == "QUEUED" and queued["jobId"]
+                and queued["attemptCount"] == 0, "Completion did not queue one stable job")
+        repeated, _ = admin.request("POST", complete_path, status=202)
+        require(repeated["jobId"] == queued["jobId"], "Duplicate completion changed the job")
+        require(sql("libra_media", "SELECT count(*) FROM media_jobs") == "1", "Completion job count")
+        require(sql("libra_media", "SELECT state FROM media_uploads") == "SUBMITTED", "Completion upload state")
+        require(sql("libra_media", "SELECT state FROM media_assets") == "QUEUED", "Completion asset state")
+        require(sql("libra_media", "SELECT count(*) FROM media_outbox_events") == "0", "Completion emitted readiness")
+        after, _ = admin.request("GET", f"/v1/admin/uploads/{upload_id}")
+        require(after["jobId"] == queued["jobId"] and after["assetState"] == "QUEUED",
+                "Queued status was not exposed")
+        hardening = ["Anonymous and missing-source completion denied without a job",
+                     "Completion through live Core and Media control",
+                     "Exactly one durable PostgreSQL job and idempotent duplicate",
+                     "QUEUED status without readiness or publication"]
+        print("M13_UPLOAD_ID=" + upload_id, flush=True)
     evidence.parent.mkdir(parents=True, exist_ok=True)
     evidence.write_text(json.dumps({
         "result": f"MEDIA_{args.scenario}_SMOKE_PASS", "checkedAt": datetime.now(timezone.utc).isoformat(),

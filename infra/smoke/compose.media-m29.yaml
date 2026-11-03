@@ -1,0 +1,28 @@
+# M29 overlay on the REAL infra/compose.yaml (`--profile full`): every variable, key share and the ingress config
+# come from that file. This overlay only swaps source builds for the JARs verified by clean verify, moves host ports
+# to loopback ports chosen by check-media-m29.ps1, and leaves out services the slice does not use.
+# Never attach workstation volumes; check-media-m29.ps1 removes this project's containers, volumes and images.
+services:
+  postgres:
+    ports: !override ["127.0.0.1::5432"]
+  kafka:
+    ports: !reset []
+  mailpit:
+    ports: !override ["127.0.0.1::8025"]
+  s3-gateway:
+    # Media signs upload URLs for MEDIA_S3_BROWSER_ENDPOINT, so this host port must be known before startup.
+    ports: !override ["127.0.0.1:${LIBRA_M29_S3_PORT:?Run check-media-m29.ps1}:8333"]
+  core:
+    build: !override { context: .., dockerfile: infra/smoke/core.Dockerfile }
+  media:
+    build: !override { context: .., dockerfile: infra/smoke/media.Dockerfile }
+  nginx:
+    ports: !override ["127.0.0.1::80"]
+    # The repository ingress names four upstreams; the two this slice does not run must still resolve. No request to
+    # them is made or claimed.
+    extra_hosts:
+      - "recommendation-analytics:127.0.0.1"
+      - "web:127.0.0.1"
+    depends_on: !override
+      core: { condition: service_started }
+      media: { condition: service_started }

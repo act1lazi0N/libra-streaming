@@ -36,8 +36,100 @@ with independent random values before starting Compose; see
 [Media storage security](docs/media-storage-m06.md) for local setup and verification.
 
 [Media Core service authentication](docs/media-service-auth-m07.md) adds the
-dedicated Core-to-Media identity and bounded internal client. Upload handlers
-remain scheduled for subsequent Media milestones.
+dedicated Core-to-Media identity and bounded internal client. Admin upload,
+signed staging PUT, and [durable completion](docs/media-completion-m13.md) are
+implemented, with [completion race and failure hardening](docs/media-completion-hardening-m14.md).
+[Bounded worker and lease lifecycle](docs/media-worker-m15.md) are implemented
+with PostgreSQL ownership, renewal, restart recovery and three-attempt retries;
+[lease recovery hardening](docs/media-worker-m16.md) adds stale-worker, database-loss
+and killed-process evidence. [Verified source freezing](docs/media-source-m17.md) provides the stage
+that proves staging bytes and selects a private immutable source under the lease;
+[snapshot recovery hardening](docs/media-snapshot-m18.md) adds crash-point, staging-mutation, storage-fault and
+scratch-reclaim evidence. [ffprobe validation](docs/media-probe-m19.md) judges the frozen MP4 against the
+first-slice H.264 policy and records only the validated metadata;
+[probe hardening](docs/media-probe-hardening-m20.md) adds the hostile-input matrix, a forced MP4/MOV demuxer and
+resource bounds measured in the packaged image. The [FFmpeg pipeline](docs/media-transcode-m21.md) encodes the frozen
+source into one decodable H.264/AAC HLS rendition inside a local attempt workspace, with a checked inventory and a service-written master
+playlist; it uploads nothing and makes nothing ready. [Encoding hardening](docs/media-encoding-hardening-m22.md)
+makes decode errors fatal, delivers variable-rate sources at their average rate, checks the rendition against the
+source duration, writes the variant playlist from the checked inventory and stops blaming the input for signals,
+external kills and full disks. [Output finalization](docs/media-finalization-m23.md) stores the checked inventory
+under the claim's private prefix, reads every object back and commits READY, the duration, the aggregate version
+and its outbox event in one lease-fenced transaction; PROCESSING and FAILED transitions now record their events too.
+[Finalization hardening](docs/media-finalization-hardening-m24.md) pins the bytes the seal vouched for (segment
+digests and exact playlists, so a tag-borne URI or a later rewrite cannot be stored as READY), adds database guards
+that keep a selected generation immutable and refuse READY without its event, and records the crash, overtaking and
+lost-acknowledgement matrix. The worker is disabled by default and enabled in Compose (M29); with the transcode stage configured, the finalizer is its job handler.
+[Outbox publication](docs/media-outbox-publication-m25.md) delivers those events to `media.assets.v1` at least once,
+in version order per asset, behind database guards that keep events immutable; Core projects the published records
+(shared wire examples in `contracts/events/examples/`). The relay is off by default and on in Compose.
+[Delivery hardening](docs/media-delivery-hardening-m26.md) replaces a producer left in a fatal state, lets the
+database accept only the exact contract event of each transition, records why a delivery failed with backlog and
+age gauges, and shows a killed packaged relay and a hung broker losing nothing.
+[Protected HLS delivery](docs/media-protected-delivery-m27.md) serves the master playlist, rendition playlist and
+segments of a READY generation at `/v1/streams/{sessionId}/{name}` (`/api/media/...` through Nginx) only to a request
+carrying exactly one Core-signed playback ticket cookie for that session, whose asset version Media records as READY
+for the ticket's binding; keys come from Media's record and a closed name vocabulary. It is off until
+`MEDIA_PLAYBACK_ENABLED=true` with Core's playback public key (Compose forwards `CORE_PLAYBACK_PUBLIC_KEY`).
+[Protected delivery hardening](docs/media-protected-delivery-hardening-m28.md) bounds each instance's concurrent streams
+in total and per playback session (`MEDIA_DELIVERY_MAX_STREAMS`, `MEDIA_DELIVERY_MAX_STREAMS_PER_SESSION`; a retryable 503
+with `Retry-After`), cuts a response that outlives `MEDIA_DELIVERY_TRANSFER_TIMEOUT` or its ticket instead of letting a
+slow player hold it, and refuses a ticket whose `iat` or `exp` is not a JSON integer.
+[Ingress playback](docs/media-protected-delivery-ingress-m29.md) serves the slice end to end in the real Compose stack:
+an administrator's upload becomes READY through Media's worker and Kafka, Core publishes it, and a Premium viewer's
+Core-signed ticket plays the HLS through Nginx, which forwards only GETs of the exact stream route, never caches or spools it to
+disk, and bounds concurrent streams per playback session (4) and per client address (16) with the same retryable 503.
+`infra/smoke/check-media-m29.ps1` runs it with generated keys and removes everything it created.
+[Delivery abuse hardening](docs/media-protected-delivery-abuse-m30.md) narrows what Nginx forwards beneath
+`/api/media/` to Media's health (bodiless GET only) and the exact stream route, so no other spelling, such as a `;`
+parameter, an encoded backslash or another case, reaches Media around the stream limits; it answers any failure before
+the first byte with the 503 problem a player retries instead of the container's empty 403; and it shows through the
+stack that an expired Core ticket stops a presentation until a new admission, that no cache, validator or range lets a
+response be reused, and that players who hang up give their streams back. `infra/smoke/check-media-m30.ps1` runs it.
+[Lifecycle cleanup](docs/media-lifecycle-cleanup-m31.md) expires abandoned uploads through the contract transition
+(`EXPIRED`, asset FAILED with its event), deletes the staging object and every unselected attempt's source and output
+of uploads that are settled (expired, or with a terminal job) once a write grace has passed, never a selected source or
+output and never by object age, and adds the job's stage, last failure and pending retry plus unsent events to the
+upload status (contracts 1.1.0; deploy Core and Media together) and low-cardinality job, queue and cleanup gauges. The
+sweeper is off by default and on in Compose (`MEDIA_LIFECYCLE_ENABLED`).
+[Cleanup race hardening](docs/media-cleanup-race-hardening-m32.md) stops a worker writing once its own measure of the
+lease has run out, even when its heartbeat is stuck; records the storage layout once (V9) so an instance configured
+with other buckets or prefixes never starts and cleanup never records an upload clean after looking in the wrong place;
+bounds every gauge read so a locked or stalled database reads as unknown; and answers any unnamed failure of the upload
+API with a sanitized 503 and one fixed log line. It races cleanup with a late writer, a finalizing successor, a browser
+PUT across the deadline and other sweepers, and resumes it after each interruption.
+[Browser vertical slice](docs/media-browser-vertical-slice-m33.md) runs the slice from a real browser. Headless Google
+Chrome, driven by Playwright through a test-only harness page behind the repository ingress, uploads a clip from a file
+input straight to private storage (a real CORS preflight against the bucket rule), waits for Media and Core to report
+READY, and publishes it. A verified Premium viewer then plays it with the pinned hls.js using its own HttpOnly ticket
+cookie, seeks, renews through Core (the next segment's request carries the renewed ticket) and plays to the end, with
+no request mocked and no READY injected. `infra/smoke/check-media-m33.ps1` runs it after `pnpm install` in `web/`.
+[Outages and restarts](docs/media-outage-restart-hardening-m34.md) repeats the slice while Core, Media, Kafka, storage
+and PostgreSQL are stopped, killed, paused or restarted at chosen points, and checks what each interrupted operation
+converges to: one job per upload, READY recorded once, the selected output untouched by a resumed stale worker, no
+ticket-less media and Core's current authority for admission and renewal. It fixes four gaps it found: Core now
+retries a Media event in place while its own database is unavailable instead of dead-lettering it, every application
+service in Compose restarts after it exits (Media refuses to start while storage is down), the ingress re-resolves its
+upstreams so a restarted service on a new address is reached again, and it answers an unreachable Core with a prompt
+503 `CORE_UNAVAILABLE` problem. `infra/smoke/check-media-m34.ps1` runs the matrix.
+[Verification and handoff](docs/media-verification-handoff-m35.md) packages the checks into one repeatable,
+fail-closed sequence. `infra/ci/verify-local.ps1` reproduces the CI job locally (Maven, report and contract gates,
+the Core smoke and the accepted-flow Media smoke `infra/smoke/check-media.ps1`). The report gate now requires
+executed Media integration suites, including the real ffprobe, FFmpeg, socket and storage suites, and a new gate
+accepts only smoke evidence from the current run, deleting any file that looks like a secret before the artifact
+upload. The milestone doc is the handoff reference for configuration, startup, states, error codes, recovery and
+protected delivery.
+[Final acceptance](docs/media-final-acceptance-m36.md) closes the first Media slice. The toolchain record now names
+the git revision and tree state a run verified, and every test and smoke evidence file carries that run's identity;
+the gate fails if the tree changes during the run. Stale PASS files are deleted
+before a run, and the acceptance smokes (M30, M33, M34 and a new restart check) are gated by
+`verify-local.ps1 -Acceptance`. Smoke cleanup is proven by asking Docker for leftovers. The restart check
+(`infra/smoke/check-media-m36.ps1`) restarts a project with its volumes retained and found that Kafka lost every
+event and offset on `down`/`up`, because the image kept its log in `/tmp`; Compose now keeps it on a named volume.
+A service's database role can no longer connect to another service's database; a `postgres-data` volume
+initialized before this change keeps the old grants until it is recreated or the `REVOKE` statements in
+`infra/postgres/init/001-create-databases.sql` are run by hand. The doc maps the original acceptance scenarios to their
+evidence and separates local, browser, remote CI and deployment evidence.
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml up -d
@@ -69,7 +161,7 @@ pnpm.cmd --dir web build
 docker compose --env-file .env -f infra/compose.yaml config --quiet
 ```
 
-The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests; FFmpeg and protected HLS integration remain later work.
+The first Maven Wrapper run downloads Maven. `clean verify` runs unit/wiring tests through Surefire and `*IntegrationTest` through Failsafe. Core integration tests require Docker and use real PostgreSQL, Kafka, and Mailpit containers; Docker absence fails the build. H2 context tests cover only wiring. Media has real PostgreSQL and SeaweedFS storage tests plus real ffprobe fixture tests, which need an `ffprobe` on `PATH` or in `LIBRA_FFPROBE_PATH` and an `ffmpeg` beside it or in `LIBRA_FFMPEG_PATH` to generate their fixtures (a missing tool fails the build); Real ffmpeg transcode tests decode every output, and the protected-delivery suite decodes what the stream routes served.
 
 See [Core foundation](docs/core-foundation.md) for Milestone 1 contracts, Flyway/outbox conventions, and the reusable Compose smoke check. Milestone 7 adds the durable background outbox publisher and recovery operations.
 
@@ -88,8 +180,9 @@ and centralized eligibility checks.
 
 See [Core playback and history](docs/core-playback.md) for Milestone 5: session
 admission/renewal, signed Media ticket contracts, sequence-safe progress, resume,
-continue watching, next episode and transactional viewing outbox. Actual Media HLS
-delivery, the player and Analytics consumption remain separate work.
+continue watching, next episode and transactional viewing outbox. Media HLS delivery
+followed in the Media milestones above; the product player and Analytics consumption
+remain separate work.
 
 See [Core watchlist and community](docs/core-community.md) for Milestone 6:
 profile watchlists, qualified account reviews, reporting, administrator moderation,
@@ -100,5 +193,5 @@ See [Core Analytics read adapters](docs/core-analytics-adapter.md) and
 recommendations/statistics with truthful fallback, scoped service JWTs, durable
 outbox delivery/recovery, Media DLT inspection/redrive, transactional audit and
 administrator metrics. Analytics and inbound Media HTTP authentication are disabled
-by default pending dedicated keys. Actual Analytics projections and Media HLS remain
+by default pending dedicated keys. Actual Analytics projections remain
 separate service work.
