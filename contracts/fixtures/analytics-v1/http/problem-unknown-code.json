@@ -1,0 +1,8 @@
+{
+  "type": "about:blank",
+  "title": "Service Unavailable",
+  "status": 503,
+  "detail": "x",
+  "code": "DATABASE_DOWN",
+  "correlationId": "{{correlationId}}"
+}

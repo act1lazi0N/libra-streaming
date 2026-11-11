@@ -21,7 +21,9 @@ Core sends only account ID, profile ID and candidate limit 100 to
 `POST /internal/v1/recommendations/query` on the configured service origin. Analytics
 must return the same profile ID, `updatedAt` and up to 100 candidate content IDs.
 Unknown fields, invalid IDs, missing fields, future timestamps and oversized
-lists are rejected. A snapshot older than 15 minutes triggers fallback.
+lists are rejected. Since [RA01.1](analytics-contracts-ra01-1.md), IDs, dates and
+timestamps must also be JSON strings in the contract form: epoch numbers, date arrays
+and Base64 UUIDs are invalid. A snapshot older than 15 minutes triggers fallback.
 
 Core rechecks current catalog state in its own database after the call. Only
 published movies with READY active media, and published series with at least one

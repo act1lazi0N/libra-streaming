@@ -1,0 +1,6 @@
+{
+  "accountId": "{{accountId}}",
+  "profileId": "{{profileId}}",
+  "limit": 100,
+  "email": "viewer@example.test"
+}

@@ -1,0 +1,13 @@
+{
+  "eventId": "{{eventId}}",
+  "eventType": "ProfileUpdated",
+  "schemaVersion": 1,
+  "aggregateId": "{{profileId}}",
+  "aggregateVersion": 2,
+  "occurredAt": "{{occurredAt}}",
+  "correlationId": "{{correlationId}}",
+  "payload": {
+    "accountId": "{{accountId}}",
+    "profileId": "{{profileId}}"
+  }
+}

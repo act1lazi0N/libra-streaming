@@ -1,0 +1,9 @@
+{
+  "type": "about:blank",
+  "title": "Service Unavailable",
+  "status": 503,
+  "detail": "x",
+  "code": "ANALYTICS_NOT_READY",
+  "correlationId": "{{correlationId}}",
+  "stackTrace": "org.postgresql.util.PSQLException"
+}

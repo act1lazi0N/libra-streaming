@@ -1,0 +1,7 @@
+{
+  "profileId": "{{profileId}}",
+  "updatedAt": "{{updatedAtOffset}}",
+  "contentIds": [
+    "{{movieId}}"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "eventId": "{{eventId}}",
+  "eventType": "CatalogUnpublished",
+  "schemaVersion": 1,
+  "aggregateId": "{{contentId}}",
+  "aggregateVersion": 4,
+  "occurredAt": "{{occurredAt}}",
+  "correlationId": "{{correlationId}}",
+  "payload": {
+    "contentId": "{{contentId}}",
+    "kind": "MOVIE",
+    "parentId": null,
+    "ordinal": null,
+    "published": null,
+    "active": null
+  }
+}

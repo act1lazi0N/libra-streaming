@@ -1,0 +1,23 @@
+{
+  "eventId": "{{eventId}}",
+  "eventType": "PlaybackProgressAccepted",
+  "schemaVersion": 1,
+  "aggregateId": "{{sessionId}}",
+  "aggregateVersion": 4,
+  "occurredAt": "{{occurredAt}}",
+  "correlationId": "{{correlationId}}",
+  "payload": {
+    "accountId": "{{accountId}}",
+    "profileId": "{{profileId}}",
+    "sessionId": "{{sessionId}}",
+    "contentId": "{{contentId}}",
+    "assetId": "{{assetId}}",
+    "assetVersion": 1,
+    "sequence": 4,
+    "positionMs": 90000,
+    "acceptedWatchedMs": 0,
+    "totalWatchedMs": 35000,
+    "qualified": true,
+    "state": "SEEKING"
+  }
+}

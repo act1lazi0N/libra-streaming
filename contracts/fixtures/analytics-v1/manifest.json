@@ -1,0 +1,878 @@
+{
+  "version": 1,
+  "description": "Core-Analytics V1 compatibility corpus. Templates use {{name}} placeholders; 'placeholders' holds sample values for schema validation and tests substitute real ones. expect: valid = schema-valid and accepted; schema-invalid = rejected by the JSON Schema; semantic-invalid = schema-valid but rejected by the consumer rule named in 'rule'. producer/coreRequest: Core's real wire output must equal the template. coreOutcome: Core's adapter result for that downstream body. schemaError pins the single expected schema violation (JSON Schema keyword and instance path). Time placeholders are relative to the consumer's clock 'now': updatedAt = now - 60 s, updatedAtOffset = the same instant at +07:00, staleUpdatedAt = now - 901 s, futureUpdatedAt = now + 1 s, to = today (UTC date of now), from = to - 6 days, tomorrow = to + 1 day; the sample values keep these relations for a fixed 'now', so a consumer must substitute its own clock. Unquoted placeholders ({{fromArray}}, {{fromEpochDay}}) stand for non-string JSON values: such templates are JSON only after substitution. V1 entries are append-only. See docs/analytics-contracts-ra01-1.md.",
+  "placeholders": {
+    "eventId": "11111111-1111-4111-8111-111111111111",
+    "correlationId": "22222222-2222-4222-8222-222222222222",
+    "accountId": "33333333-3333-4333-8333-333333333333",
+    "profileId": "4a4a4a4a-4444-4444-8444-444444444444",
+    "profileIdUpper": "4A4A4A4A-4444-4444-8444-444444444444",
+    "sessionId": "55555555-5555-4555-8555-555555555555",
+    "contentId": "66666666-6666-4666-8666-666666666666",
+    "assetId": "77777777-7777-4777-8777-777777777777",
+    "bindingId": "88888888-8888-4888-8888-888888888888",
+    "parentId": "99999999-9999-4999-8999-999999999999",
+    "otherId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    "movieId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "movieIdUpper": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+    "movieIdCompact": "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+    "seriesId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "episodeId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "unknownContentId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "occurredAt": "2026-09-07T10:15:30Z",
+    "createdAt": "2026-09-07T10:15:30.123456Z",
+    "updatedAt": "2026-09-07T10:14:30Z",
+    "updatedAtOffset": "2026-09-07T17:14:30+07:00",
+    "staleUpdatedAt": "2026-09-07T09:59:00Z",
+    "futureUpdatedAt": "2026-09-07T10:16:30Z",
+    "from": "2026-09-01",
+    "to": "2026-09-07",
+    "tomorrow": "2026-09-08",
+    "now": "2026-09-07T10:15:30Z",
+    "fromArray": "[2026, 9, 1]",
+    "fromEpochDay": "20697",
+    "movieIdBase64": "qqqqqqqqSqqKqqqqqqqqqg=="
+  },
+  "fixtures": [
+    {
+      "id": "playback-started",
+      "file": "events/playback-started.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "valid",
+      "rule": "First heartbeat after admission from PAUSED earns no time",
+      "topic": "core.playback.v1",
+      "producer": "playback-1"
+    },
+    {
+      "id": "playback-increment",
+      "file": "events/playback-increment.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "valid",
+      "rule": "Increment bounded by server-observed elapsed time",
+      "topic": "core.playback.v1",
+      "producer": "playback-2"
+    },
+    {
+      "id": "playback-qualifying",
+      "file": "events/playback-qualifying.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "valid",
+      "rule": "First event whose cumulative total reaches 30 s qualifies the session",
+      "topic": "core.playback.v1",
+      "producer": "playback-3"
+    },
+    {
+      "id": "playback-seek",
+      "file": "events/playback-seek.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "valid",
+      "rule": "Seeking moves position but earns no watched time",
+      "topic": "core.playback.v1",
+      "producer": "playback-4"
+    },
+    {
+      "id": "playback-missing-total",
+      "file": "events/playback-missing-total.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "Every payload field is required",
+      "topic": "core.playback.v1",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/payload"
+      }
+    },
+    {
+      "id": "playback-increment-over-heartbeat",
+      "file": "events/playback-increment-over-heartbeat.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "acceptedWatchedMs is at most 30000",
+      "topic": "core.playback.v1",
+      "schemaError": {
+        "keyword": "maximum",
+        "path": "/payload/acceptedWatchedMs"
+      }
+    },
+    {
+      "id": "playback-extra-field",
+      "file": "events/playback-extra-field.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "Payload is closed; personal data never travels",
+      "topic": "core.playback.v1",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/payload"
+      }
+    },
+    {
+      "id": "playback-schema-version-2",
+      "file": "events/playback-schema-version-2.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "V1 consumers must not decode another schema version",
+      "topic": "core.playback.v1",
+      "schemaError": {
+        "keyword": "const",
+        "path": "/schemaVersion"
+      }
+    },
+    {
+      "id": "playback-unknown-state",
+      "file": "events/playback-unknown-state.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "State is a closed enum",
+      "topic": "core.playback.v1",
+      "schemaError": {
+        "keyword": "enum",
+        "path": "/payload/state"
+      }
+    },
+    {
+      "id": "playback-aggregate-not-session",
+      "file": "events/playback-aggregate-not-session.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "aggregateId and Kafka key equal payload.sessionId",
+      "topic": "core.playback.v1"
+    },
+    {
+      "id": "playback-version-not-sequence",
+      "file": "events/playback-version-not-sequence.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "aggregateVersion equals payload.sequence",
+      "topic": "core.playback.v1"
+    },
+    {
+      "id": "playback-increment-exceeds-total",
+      "file": "events/playback-increment-exceeds-total.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "acceptedWatchedMs never exceeds totalWatchedMs",
+      "topic": "core.playback.v1"
+    },
+    {
+      "id": "playback-qualified-below-threshold",
+      "file": "events/playback-qualified-below-threshold.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "qualified is exactly totalWatchedMs >= 30000",
+      "topic": "core.playback.v1"
+    },
+    {
+      "id": "playback-unqualified-at-threshold",
+      "file": "events/playback-unqualified-at-threshold.json",
+      "contract": "events/core-playback-progress.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "qualified is exactly totalWatchedMs >= 30000",
+      "topic": "core.playback.v1"
+    },
+    {
+      "id": "catalog-movie-published",
+      "file": "events/catalog-movie-published.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "valid",
+      "rule": "Explicit publication carries revision and READY active binding",
+      "topic": "core.catalog.v1",
+      "producer": "catalog-movie-published"
+    },
+    {
+      "id": "catalog-movie-unpublished",
+      "file": "events/catalog-movie-unpublished.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "valid",
+      "rule": "Unpublication clears revision and active binding",
+      "topic": "core.catalog.v1",
+      "producer": "catalog-movie-unpublished"
+    },
+    {
+      "id": "catalog-movie-availability-failed",
+      "file": "events/catalog-movie-availability-failed.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "valid",
+      "rule": "Active binding state change of published content; duration cleared when not READY",
+      "topic": "core.catalog.v1",
+      "producer": "catalog-movie-availability-failed"
+    },
+    {
+      "id": "catalog-series-published",
+      "file": "events/catalog-series-published.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "valid",
+      "rule": "Non-playable containers have no active binding",
+      "topic": "core.catalog.v1",
+      "producer": "catalog-series-published"
+    },
+    {
+      "id": "catalog-episode-published",
+      "file": "events/catalog-episode-published.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "valid",
+      "rule": "Episodes carry parent season and ordinal",
+      "topic": "core.catalog.v1",
+      "producer": "catalog-episode-published"
+    },
+    {
+      "id": "catalog-unknown-kind",
+      "file": "events/catalog-unknown-kind.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "Kind is a closed enum",
+      "topic": "core.catalog.v1",
+      "schemaError": {
+        "keyword": "enum",
+        "path": "/payload/kind"
+      }
+    },
+    {
+      "id": "catalog-missing-active",
+      "file": "events/catalog-missing-active.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "Nullable fields are still required",
+      "topic": "core.catalog.v1",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/payload"
+      }
+    },
+    {
+      "id": "catalog-genre-not-slug",
+      "file": "events/catalog-genre-not-slug.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "Genres are lowercase slugs",
+      "topic": "core.catalog.v1",
+      "schemaError": {
+        "keyword": "anyOf",
+        "path": "/payload/published"
+      }
+    },
+    {
+      "id": "catalog-aggregate-not-content",
+      "file": "events/catalog-aggregate-not-content.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "aggregateId and Kafka key equal payload.contentId",
+      "topic": "core.catalog.v1"
+    },
+    {
+      "id": "catalog-published-without-revision",
+      "file": "events/catalog-published-without-revision.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "CatalogPublished and CatalogAvailabilityChanged always carry the published revision",
+      "topic": "core.catalog.v1"
+    },
+    {
+      "id": "catalog-unpublished-with-revision",
+      "file": "events/catalog-unpublished-with-revision.json",
+      "contract": "events/core-catalog-publication.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "CatalogUnpublished carries no revision or binding",
+      "topic": "core.catalog.v1"
+    },
+    {
+      "id": "profile-created",
+      "file": "events/profile-created.json",
+      "contract": "events/core-profile-lifecycle.v1.schema.json",
+      "expect": "valid",
+      "rule": "Creation starts at version 1",
+      "topic": "core.profiles.v1",
+      "producer": "profile-created"
+    },
+    {
+      "id": "profile-updated",
+      "file": "events/profile-updated.json",
+      "contract": "events/core-profile-lifecycle.v1.schema.json",
+      "expect": "valid",
+      "rule": "Rename increments the profile version",
+      "topic": "core.profiles.v1",
+      "producer": "profile-updated"
+    },
+    {
+      "id": "profile-deleted",
+      "file": "events/profile-deleted.json",
+      "contract": "events/core-profile-lifecycle.v1.schema.json",
+      "expect": "valid",
+      "rule": "Tombstone carries the final version plus one",
+      "topic": "core.profiles.v1",
+      "producer": "profile-deleted"
+    },
+    {
+      "id": "profile-extra-display-name",
+      "file": "events/profile-extra-display-name.json",
+      "contract": "events/core-profile-lifecycle.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "Profile events carry identifiers only",
+      "topic": "core.profiles.v1",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/payload"
+      }
+    },
+    {
+      "id": "profile-unknown-type",
+      "file": "events/profile-unknown-type.json",
+      "contract": "events/core-profile-lifecycle.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "Event types on the topic are a closed enum",
+      "topic": "core.profiles.v1",
+      "schemaError": {
+        "keyword": "enum",
+        "path": "/eventType"
+      }
+    },
+    {
+      "id": "profile-version-zero",
+      "file": "events/profile-version-zero.json",
+      "contract": "events/core-profile-lifecycle.v1.schema.json",
+      "expect": "schema-invalid",
+      "rule": "aggregateVersion starts at 1",
+      "topic": "core.profiles.v1",
+      "schemaError": {
+        "keyword": "minimum",
+        "path": "/aggregateVersion"
+      }
+    },
+    {
+      "id": "profile-aggregate-not-profile",
+      "file": "events/profile-aggregate-not-profile.json",
+      "contract": "events/core-profile-lifecycle.v1.schema.json",
+      "expect": "semantic-invalid",
+      "rule": "aggregateId and Kafka key equal payload.profileId",
+      "topic": "core.profiles.v1"
+    },
+    {
+      "id": "recommendation-query-core",
+      "file": "http/recommendation-query-core.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/RecommendationQuery",
+      "expect": "valid",
+      "rule": "Core always asks for 100 candidates",
+      "coreRequest": "recommendations"
+    },
+    {
+      "id": "recommendation-query-limit-zero",
+      "file": "http/recommendation-query-limit-zero.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/RecommendationQuery",
+      "expect": "schema-invalid",
+      "rule": "limit is 1..100",
+      "schemaError": {
+        "keyword": "minimum",
+        "path": "/limit"
+      }
+    },
+    {
+      "id": "recommendation-query-limit-over",
+      "file": "http/recommendation-query-limit-over.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/RecommendationQuery",
+      "expect": "schema-invalid",
+      "rule": "limit is 1..100",
+      "schemaError": {
+        "keyword": "maximum",
+        "path": "/limit"
+      }
+    },
+    {
+      "id": "recommendation-query-limit-string",
+      "file": "http/recommendation-query-limit-string.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/RecommendationQuery",
+      "expect": "schema-invalid",
+      "rule": "No scalar coercion",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/limit"
+      }
+    },
+    {
+      "id": "recommendation-query-extra-field",
+      "file": "http/recommendation-query-extra-field.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/RecommendationQuery",
+      "expect": "schema-invalid",
+      "rule": "Request is closed",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "recommendation-query-missing-profile",
+      "file": "http/recommendation-query-missing-profile.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/RecommendationQuery",
+      "expect": "schema-invalid",
+      "rule": "All fields required",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/"
+      }
+    },
+    {
+      "id": "statistics-query-core",
+      "file": "http/statistics-query-core.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsQuery",
+      "expect": "valid",
+      "rule": "Inclusive UTC window as asked by the administrator",
+      "coreRequest": "statistics"
+    },
+    {
+      "id": "statistics-query-date-time",
+      "file": "http/statistics-query-date-time.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsQuery",
+      "expect": "schema-invalid",
+      "rule": "Dates only, no time or zone",
+      "schemaError": {
+        "keyword": "format",
+        "path": "/from"
+      }
+    },
+    {
+      "id": "statistics-query-extra-field",
+      "file": "http/statistics-query-extra-field.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsQuery",
+      "expect": "schema-invalid",
+      "rule": "Request is closed",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "statistics-query-reversed",
+      "file": "http/statistics-query-reversed.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsQuery",
+      "expect": "semantic-invalid",
+      "rule": "from <= to"
+    },
+    {
+      "id": "statistics-query-32-days",
+      "file": "http/statistics-query-32-days.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsQuery",
+      "expect": "semantic-invalid",
+      "rule": "At most 31 days inclusive"
+    },
+    {
+      "id": "statistics-query-future",
+      "file": "http/statistics-query-future.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsQuery",
+      "expect": "semantic-invalid",
+      "rule": "to is not after today (UTC)"
+    },
+    {
+      "id": "candidates-ranked",
+      "file": "http/candidates-ranked.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "valid",
+      "rule": "Rank order survives Core filtering",
+      "coreOutcome": "ANALYTICS",
+      "coreItems": [
+        "{{seriesId}}",
+        "{{movieId}}"
+      ]
+    },
+    {
+      "id": "candidates-filtered",
+      "file": "http/candidates-filtered.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "valid",
+      "rule": "Unknown, episode and duplicate IDs are dropped by Core, not padded",
+      "coreOutcome": "ANALYTICS",
+      "coreItems": [
+        "{{movieId}}"
+      ]
+    },
+    {
+      "id": "candidates-empty",
+      "file": "http/candidates-empty.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "valid",
+      "rule": "No candidates is a real answer; Core falls back with a reason",
+      "coreOutcome": "NO_VISIBLE_CANDIDATES"
+    },
+    {
+      "id": "candidates-offset-timestamp",
+      "file": "http/candidates-offset-timestamp.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "valid",
+      "rule": "RFC 3339 offsets are accepted",
+      "coreOutcome": "ANALYTICS",
+      "coreItems": [
+        "{{movieId}}"
+      ]
+    },
+    {
+      "id": "candidates-uppercase-uuid",
+      "file": "http/candidates-uppercase-uuid.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "valid",
+      "rule": "UUID comparison is case-insensitive",
+      "coreOutcome": "ANALYTICS",
+      "coreItems": [
+        "{{movieId}}"
+      ]
+    },
+    {
+      "id": "candidates-stale",
+      "file": "http/candidates-stale.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "valid",
+      "rule": "Older than 15 minutes is a valid but stale snapshot",
+      "coreOutcome": "STALE"
+    },
+    {
+      "id": "candidates-extra-field",
+      "file": "http/candidates-extra-field.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "schema-invalid",
+      "rule": "Response is closed",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "candidates-missing-updated-at",
+      "file": "http/candidates-missing-updated-at.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "schema-invalid",
+      "rule": "Checkpoint is required",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/"
+      }
+    },
+    {
+      "id": "candidates-over-limit",
+      "file": "http/candidates-over-limit.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "schema-invalid",
+      "rule": "At most 100 candidates",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "maxItems",
+        "path": "/contentIds"
+      }
+    },
+    {
+      "id": "candidates-null-id",
+      "file": "http/candidates-null-id.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "schema-invalid",
+      "rule": "Candidate IDs are UUID strings",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/contentIds/0"
+      }
+    },
+    {
+      "id": "candidates-epoch-timestamp",
+      "file": "http/candidates-epoch-timestamp.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "schema-invalid",
+      "rule": "updatedAt is an RFC 3339 string, not epoch seconds",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/updatedAt"
+      }
+    },
+    {
+      "id": "candidates-uuid-without-dashes",
+      "file": "http/candidates-uuid-without-dashes.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "schema-invalid",
+      "rule": "UUIDs use the canonical dashed form",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "format",
+        "path": "/contentIds/0"
+      }
+    },
+    {
+      "id": "candidates-base64-uuid",
+      "file": "http/candidates-base64-uuid.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "schema-invalid",
+      "rule": "UUIDs are dashed hex text, not base64",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "format",
+        "path": "/contentIds/0"
+      }
+    },
+    {
+      "id": "candidates-other-profile",
+      "file": "http/candidates-other-profile.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "semantic-invalid",
+      "rule": "profileId echoes the request",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "candidates-future-checkpoint",
+      "file": "http/candidates-future-checkpoint.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/CandidateResponse",
+      "expect": "semantic-invalid",
+      "rule": "updatedAt is never after Core's clock",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "statistics-available",
+      "file": "http/statistics-available.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "valid",
+      "rule": "Fresh aggregate snapshot",
+      "coreOutcome": "AVAILABLE"
+    },
+    {
+      "id": "statistics-zeros",
+      "file": "http/statistics-zeros.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "valid",
+      "rule": "Real zeros after a confirmed checkpoint stay zero",
+      "coreOutcome": "AVAILABLE"
+    },
+    {
+      "id": "statistics-int64-max",
+      "file": "http/statistics-int64-max.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "valid",
+      "rule": "Counts are int64",
+      "coreOutcome": "AVAILABLE"
+    },
+    {
+      "id": "statistics-stale",
+      "file": "http/statistics-stale.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "valid",
+      "rule": "Older than 15 minutes is valid but STALE",
+      "coreOutcome": "STALE"
+    },
+    {
+      "id": "statistics-extra-field",
+      "file": "http/statistics-extra-field.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "schema-invalid",
+      "rule": "Response is closed",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "statistics-negative",
+      "file": "http/statistics-negative.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "schema-invalid",
+      "rule": "Counts are nonnegative",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "minimum",
+        "path": "/qualifiedViews"
+      }
+    },
+    {
+      "id": "statistics-fractional",
+      "file": "http/statistics-fractional.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "schema-invalid",
+      "rule": "Counts are integers",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/qualifiedViews"
+      }
+    },
+    {
+      "id": "statistics-string-count",
+      "file": "http/statistics-string-count.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "schema-invalid",
+      "rule": "No scalar coercion",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/qualifiedViews"
+      }
+    },
+    {
+      "id": "statistics-missing-duration",
+      "file": "http/statistics-missing-duration.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "schema-invalid",
+      "rule": "All fields required",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/"
+      }
+    },
+    {
+      "id": "statistics-array-date",
+      "file": "http/statistics-array-date.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "schema-invalid",
+      "rule": "Dates are ISO strings, not [y, m, d] arrays",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/from"
+      }
+    },
+    {
+      "id": "statistics-epoch-day-date",
+      "file": "http/statistics-epoch-day-date.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "schema-invalid",
+      "rule": "Dates are ISO strings, not epoch-day numbers",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/from"
+      }
+    },
+    {
+      "id": "statistics-unique-over-views",
+      "file": "http/statistics-unique-over-views.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "semantic-invalid",
+      "rule": "uniqueViewers <= qualifiedViews",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "statistics-other-window",
+      "file": "http/statistics-other-window.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "semantic-invalid",
+      "rule": "from/to echo the request exactly",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "statistics-future-checkpoint",
+      "file": "http/statistics-future-checkpoint.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "semantic-invalid",
+      "rule": "updatedAt is never after Core's clock",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "statistics-beyond-int64",
+      "file": "http/statistics-beyond-int64.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/StatisticsResponse",
+      "expect": "semantic-invalid",
+      "rule": "format int64 bounds the counts (2^63 overflows); JSON Schema validators that ignore format int64 accept it, OpenAPI-aware validators may report it as a schema error instead",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "problem-not-ready",
+      "file": "http/problem-not-ready.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/Problem",
+      "expect": "valid",
+      "rule": "No first checkpoint: 503, never 200 with zeros",
+      "httpStatus": 503,
+      "coreEndpoint": "statistics",
+      "coreOutcome": "UNAVAILABLE"
+    },
+    {
+      "id": "problem-unavailable",
+      "file": "http/problem-unavailable.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/Problem",
+      "expect": "valid",
+      "rule": "Dependency failure degrades Core to fallback",
+      "httpStatus": 503,
+      "coreEndpoint": "recommendations",
+      "coreOutcome": "UNAVAILABLE"
+    },
+    {
+      "id": "problem-invalid-request",
+      "file": "http/problem-invalid-request.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/Problem",
+      "expect": "valid",
+      "rule": "A rejected query is never shown as data",
+      "httpStatus": 400,
+      "coreEndpoint": "statistics",
+      "coreOutcome": "UNAVAILABLE"
+    },
+    {
+      "id": "problem-leaks-detail",
+      "file": "http/problem-leaks-detail.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/Problem",
+      "expect": "schema-invalid",
+      "rule": "Problem bodies are closed; no stack traces",
+      "httpStatus": 503,
+      "coreEndpoint": "recommendations",
+      "coreOutcome": "UNAVAILABLE",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "problem-unknown-code",
+      "file": "http/problem-unknown-code.json",
+      "contract": "http/analytics-internal.v1.json",
+      "pointer": "#/components/schemas/Problem",
+      "expect": "schema-invalid",
+      "rule": "Codes are a closed enum",
+      "httpStatus": 503,
+      "coreEndpoint": "statistics",
+      "coreOutcome": "UNAVAILABLE",
+      "schemaError": {
+        "keyword": "enum",
+        "path": "/code"
+      }
+    }
+  ]
+}

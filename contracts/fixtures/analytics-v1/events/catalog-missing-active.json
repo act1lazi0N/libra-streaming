@@ -1,0 +1,31 @@
+{
+  "eventId": "{{eventId}}",
+  "eventType": "CatalogPublished",
+  "schemaVersion": 1,
+  "aggregateId": "{{contentId}}",
+  "aggregateVersion": 3,
+  "occurredAt": "{{occurredAt}}",
+  "correlationId": "{{correlationId}}",
+  "payload": {
+    "contentId": "{{contentId}}",
+    "kind": "MOVIE",
+    "parentId": null,
+    "ordinal": null,
+    "published": {
+      "revision": 1,
+      "metadata": {
+        "title": "Title",
+        "description": "Description",
+        "genres": [
+          "drama"
+        ],
+        "releaseYear": 2026,
+        "language": "en",
+        "credits": [],
+        "imageReferences": [],
+        "accessTier": "FREE"
+      },
+      "createdAt": "{{createdAt}}"
+    }
+  }
+}

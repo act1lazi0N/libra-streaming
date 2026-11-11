@@ -195,3 +195,14 @@ outbox delivery/recovery, Media DLT inspection/redrive, transactional audit and
 administrator metrics. Analytics and inbound Media HTTP authentication are disabled
 by default pending dedicated keys. Actual Analytics projections remain
 separate service work.
+
+[Analytics contracts and ownership](docs/analytics-contracts-ra01-1.md) starts the
+Recommendation & Analytics roadmap (RA01.1). It fixes data ownership between Core and
+Analytics, the consumed `core.catalog.v1`/`core.profiles.v1`/`core.playback.v1` rules,
+statistics and freshness semantics, error codes (contract 1.1.0) and the V1 versioning
+policy. The shared corpus `contracts/fixtures/analytics-v1` (79 fixtures) is checked by
+`infra/ci/check_contracts.py`. Core integration tests prove that Core's outbox records
+and query bodies equal the fixtures, and that Core's adapter reaches the declared outcome
+for every downstream body. They found that Core accepted epoch timestamps, Base64 UUIDs
+and array dates the contract forbids; Core now rejects them. The Analytics runtime is
+still a scaffold.

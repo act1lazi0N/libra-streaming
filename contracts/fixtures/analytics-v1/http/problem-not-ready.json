@@ -1,0 +1,8 @@
+{
+  "type": "about:blank",
+  "title": "Service Unavailable",
+  "status": 503,
+  "detail": "Analytics has not completed its first checkpoint.",
+  "code": "ANALYTICS_NOT_READY",
+  "correlationId": "{{correlationId}}"
+}

@@ -304,6 +304,93 @@ class AnalyticsReadIntegrationTest {
         assertThatThrownBy(this::statistics).hasMessage("ACCESS_DENIED");
     }
 
+    /** RA01.1: Core accepts exactly the contract's valid downstream bodies and sends exactly the canonical queries. */
+    @Test void everyContractFixtureReachesItsDeclaredCoreOutcomeAndCoreSendsTheCanonicalQueries() throws Exception {
+        var movie = movie();
+        var series = publish(create(Kind.SERIES, null, null));
+        var season = publish(create(Kind.SEASON, series.id(), 1));
+        var episode = publish(ready(create(Kind.EPISODE, season.id(), 1)));
+        Instant now = clock.instant();
+        var values = new HashMap<String, String>();
+        values.put("accountId", viewer.accountId().toString());
+        values.put("profileId", profile.toString());
+        values.put("profileIdUpper", profile.toString().toUpperCase(Locale.ROOT));
+        values.put("movieId", movie.id().toString());
+        values.put("movieIdUpper", movie.id().toString().toUpperCase(Locale.ROOT));
+        values.put("movieIdCompact", movie.id().toString().replace("-", ""));
+        values.put("seriesId", series.id().toString());
+        values.put("episodeId", episode.id().toString());
+        values.put("unknownContentId", UUID.randomUUID().toString());
+        values.put("otherId", UUID.randomUUID().toString());
+        values.put("correlationId", UUID.randomUUID().toString());
+        values.put("updatedAt", now.minusSeconds(60).toString());
+        // OffsetDateTime.toString() drops ":00" seconds; the formatter always writes RFC 3339 seconds.
+        values.put("updatedAtOffset", java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME
+                .format(now.minusSeconds(60).atOffset(ZoneOffset.ofHours(7))));
+        values.put("staleUpdatedAt", now.minusSeconds(901).toString());
+        values.put("futureUpdatedAt", now.plusSeconds(1).toString());
+        values.put("from", today().minusDays(6).toString());
+        values.put("to", today().toString());
+        var from = today().minusDays(6);
+        values.put("fromArray", "[" + from.getYear() + "," + from.getMonthValue() + "," + from.getDayOfMonth() + "]");
+        values.put("fromEpochDay", Long.toString(from.toEpochDay()));
+        var bytes = java.nio.ByteBuffer.allocate(16).putLong(movie.id().getMostSignificantBits())
+                .putLong(movie.id().getLeastSignificantBits()).array();
+        values.put("movieIdBase64", Base64.getEncoder().encodeToString(bytes));
+        var fixtures = AnalyticsContractFixtures.load(mapper);
+        var bodies = AnalyticsContractFixtures.with(fixtures, "coreOutcome");
+        assertThat(bodies).hasSize(35); // append-only corpus: a lost downstream fixture must fail here
+        var mismatches = new ArrayList<String>();
+        for (var fixture : bodies) {
+            String body = fixture.instantiate(values);
+            int status = fixture.entry().path("httpStatus").asInt(200);
+            responder = exchange -> respond(exchange, status, body);
+            boolean candidates = fixture.text("pointer").endsWith("/CandidateResponse")
+                    || "recommendations".equals(fixture.text("coreEndpoint"));
+            String outcome;
+            if (candidates) {
+                var result = recommendations();
+                outcome = result.source() == Source.ANALYTICS ? "ANALYTICS" : result.reason().name();
+                if (result.source() == Source.ANALYTICS && outcome.equals(fixture.text("coreOutcome"))) {
+                    var expected = new ArrayList<String>();
+                    fixture.entry().path("coreItems").forEach(item -> expected.add(values.get(item.asString().replaceAll("[{}]", ""))));
+                    assertThat(result.items()).as(fixture.id()).extracting(item -> item.id().toString()).containsExactlyElementsOf(expected);
+                    assertThat(result.updatedAt()).as(fixture.id()).isEqualTo(Instant.parse(values.get("updatedAt")));
+                } else if (result.source() == Source.FALLBACK) {
+                    assertThat(result.updatedAt()).as(fixture.id()).isNull();
+                }
+            } else {
+                var result = statistics();
+                outcome = result.status() == Status.UNAVAILABLE ? result.reason().name() : result.status().name();
+                if (result.status() == Status.UNAVAILABLE) {
+                    assertThat(result.qualifiedViews()).as(fixture.id()).isNull();
+                    assertThat(result.updatedAt()).as(fixture.id()).isNull();
+                } else if (outcome.equals(fixture.text("coreOutcome"))) {
+                    var sent = mapper.readTree(body);
+                    assertThat(result.qualifiedViews()).as(fixture.id()).isEqualTo(sent.path("qualifiedViews").asLong());
+                    assertThat(result.uniqueViewers()).as(fixture.id()).isEqualTo(sent.path("uniqueViewers").asLong());
+                    assertThat(result.acceptedWatchedMs()).as(fixture.id()).isEqualTo(sent.path("acceptedWatchedMs").asLong());
+                }
+            }
+            if (!outcome.equals(fixture.text("coreOutcome"))) {
+                mismatches.add(fixture.id() + ": expected " + fixture.text("coreOutcome") + " but Core reached " + outcome);
+            }
+        }
+        assertThat(mismatches).as("Core outcomes that differ from the contract corpus").isEmpty();
+        observed.clear();
+        responder = exchange -> respond(exchange, 503, "{}");
+        recommendations();
+        statistics();
+        var calls = List.copyOf(observed);
+        assertThat(calls).extracting(Observed::path)
+                .containsExactly("/internal/v1/recommendations/query", "/internal/v1/statistics/query");
+        assertThat(mapper.readTree(calls.get(0).body())).isEqualTo(mapper.readTree(
+                AnalyticsContractFixtures.byField(fixtures, "coreRequest", "recommendations").instantiate(values)));
+        assertThat(mapper.readTree(calls.get(1).body())).isEqualTo(mapper.readTree(
+                AnalyticsContractFixtures.byField(fixtures, "coreRequest", "statistics").instantiate(values)));
+        assertThat(fixtureError.get()).isNull();
+    }
+
     @Test void disabledAdapterWorksWithoutSecretsOrAnyDownstreamCall() {
         var properties = new AnalyticsProperties(false, null, "", "", "");
         var tokens = new AnalyticsServiceTokens(properties, AnalyticsTestKeys.identity(true), AnalyticsTestKeys.playback(), clock);

@@ -1,0 +1,8 @@
+{
+  "type": "about:blank",
+  "title": "Service Unavailable",
+  "status": 503,
+  "detail": "Analytics is temporarily unavailable.",
+  "code": "ANALYTICS_UNAVAILABLE",
+  "correlationId": "{{correlationId}}"
+}

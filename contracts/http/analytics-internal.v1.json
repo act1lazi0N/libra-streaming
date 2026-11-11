@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "LIBRA proposed Analytics internal read contract",
-    "version": "1.0.0",
-    "description": "Consumer contract implemented by Core; Analytics server implementation is NOT delivered in the Core milestone 7 scope. Recommendations return movie/series IDs, same profileId, rank order and projection updatedAt. Core filters current visibility and READY availability. Statistics echo the inclusive UTC window, maximum 31 days through today: qualifiedViews = one per session reaching 30 seconds, uniqueViewers = distinct qualified accounts over the full range, acceptedWatchedMs = sum of Core-accepted increments. Views/uniques use first-qualification UTC date; increments use accepted-event UTC date. Late events correct historical buckets. Require nonnegative counts and uniqueViewers <= qualifiedViews. Reject unknown fields. Future updatedAt is invalid; Core marks snapshots older than 15 minutes stale. See docs/core-analytics-adapter.md."
+    "title": "LIBRA Analytics internal read contract",
+    "version": "1.1.0",
+    "description": "Read-only internal queries served by Recommendation/Analytics to Core only. Normative ownership, statistics, freshness, error and compatibility semantics: docs/analytics-contracts-ra01-1.md. 1.1.0 adds sanitized error responses only; request/response schemas are unchanged from 1.0.0 and Core still discards every non-200 body. Recommendations return movie/series IDs in rank order, the same profileId and the projection checkpoint updatedAt; Core filters current visibility and READY availability. Statistics echo the inclusive UTC window (at most 31 days, through today): qualifiedViews = sessions whose first qualifying event (cumulative accepted duration >= 30 s) falls in the window; uniqueViewers = distinct accounts among them over the whole window; acceptedWatchedMs = sum of Core-accepted increments by accepted-event UTC date. updatedAt is the confirmed consumer checkpoint, never the request time. Without a first checkpoint the server answers 503 ANALYTICS_NOT_READY, never 200 with zeros. Unknown fields are rejected in both directions; a new field or meaning requires /internal/v2. Executable fixtures: contracts/fixtures/analytics-v1/manifest.json."
   },
   "servers": [
     {
@@ -53,15 +53,72 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
           "401": {
-            "description": "Missing/invalid service JWT"
+            "$ref": "#/components/responses/Problem"
           },
           "403": {
-            "description": "Wrong scope"
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "405": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
           },
           "default": {
-            "description": "Failure; Core discards the body and degrades safely"
+            "$ref": "#/components/responses/Problem"
           }
+        },
+        "x-error-codes": {
+          "400": [
+            "INVALID_REQUEST"
+          ],
+          "401": [
+            "AUTHENTICATION_REQUIRED"
+          ],
+          "403": [
+            "ACCESS_DENIED"
+          ],
+          "404": [
+            "NOT_FOUND"
+          ],
+          "405": [
+            "METHOD_NOT_ALLOWED"
+          ],
+          "413": [
+            "PAYLOAD_TOO_LARGE"
+          ],
+          "415": [
+            "UNSUPPORTED_MEDIA_TYPE"
+          ],
+          "429": [
+            "RATE_LIMITED"
+          ],
+          "500": [
+            "INTERNAL_ERROR"
+          ],
+          "503": [
+            "ANALYTICS_NOT_READY",
+            "ANALYTICS_UNAVAILABLE"
+          ]
         }
       }
     },
@@ -102,15 +159,72 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
           "401": {
-            "description": "Missing/invalid service JWT"
+            "$ref": "#/components/responses/Problem"
           },
           "403": {
-            "description": "Wrong scope"
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "405": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
           },
           "default": {
-            "description": "Failure; Core discards the body and degrades safely"
+            "$ref": "#/components/responses/Problem"
           }
+        },
+        "x-error-codes": {
+          "400": [
+            "INVALID_REQUEST"
+          ],
+          "401": [
+            "AUTHENTICATION_REQUIRED"
+          ],
+          "403": [
+            "ACCESS_DENIED"
+          ],
+          "404": [
+            "NOT_FOUND"
+          ],
+          "405": [
+            "METHOD_NOT_ALLOWED"
+          ],
+          "413": [
+            "PAYLOAD_TOO_LARGE"
+          ],
+          "415": [
+            "UNSUPPORTED_MEDIA_TYPE"
+          ],
+          "429": [
+            "RATE_LIMITED"
+          ],
+          "500": [
+            "INTERNAL_ERROR"
+          ],
+          "503": [
+            "ANALYTICS_NOT_READY",
+            "ANALYTICS_UNAVAILABLE"
+          ]
         }
       }
     }
@@ -232,6 +346,69 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "code",
+          "correlationId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "about:blank"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "INVALID_REQUEST",
+              "AUTHENTICATION_REQUIRED",
+              "ACCESS_DENIED",
+              "NOT_FOUND",
+              "METHOD_NOT_ALLOWED",
+              "PAYLOAD_TOO_LARGE",
+              "UNSUPPORTED_MEDIA_TYPE",
+              "RATE_LIMITED",
+              "INTERNAL_ERROR",
+              "ANALYTICS_NOT_READY",
+              "ANALYTICS_UNAVAILABLE"
+            ]
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Sanitized Problem Details, sent as application/problem+json whatever the request Accept header says. Core discards the body and degrades to UNAVAILABLE/FALLBACK. 400 INVALID_REQUEST (schema or semantic request violation, including a window over 31 days or past today UTC); 401 AUTHENTICATION_REQUIRED (missing/invalid service JWT); 403 ACCESS_DENIED (wrong scope); 404 NOT_FOUND; 405 METHOD_NOT_ALLOWED; 413 PAYLOAD_TOO_LARGE; 415 UNSUPPORTED_MEDIA_TYPE; 429 RATE_LIMITED; 500 INTERNAL_ERROR; 503 ANALYTICS_NOT_READY (no confirmed checkpoint yet) or ANALYTICS_UNAVAILABLE (dependency failure). Never contains tokens, SQL, stack traces, raw event payloads or account/profile identifiers.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
           }
         }
       }

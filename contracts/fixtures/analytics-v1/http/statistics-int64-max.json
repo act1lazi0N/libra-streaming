@@ -1,0 +1,8 @@
+{
+  "from": "{{from}}",
+  "to": "{{to}}",
+  "updatedAt": "{{updatedAt}}",
+  "qualifiedViews": 9223372036854775807,
+  "uniqueViewers": 9223372036854775807,
+  "acceptedWatchedMs": 9223372036854775807
+}

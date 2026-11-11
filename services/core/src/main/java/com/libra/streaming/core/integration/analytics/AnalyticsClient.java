@@ -30,7 +30,8 @@ public class AnalyticsClient {
     public AnalyticsClient(AnalyticsProperties properties, AnalyticsServiceTokens tokens, ObjectMapper mapper, Validator validator) {
         this.properties = properties; this.tokens = tokens; this.validator = validator;
         this.mapper = mapper.rebuild().disable(tools.jackson.databind.MapperFeature.ALLOW_COERCION_OF_SCALARS)
-                .disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT).build();
+                .disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT)
+                .addModule(StrictContractJson.module()).build();
     }
     public Result<CandidateResponse> recommendations(RecommendationQuery query, UUID correlationId) {
         return post("/internal/v1/recommendations/query", Scope.RECOMMENDATIONS, query, CandidateResponse.class, correlationId);

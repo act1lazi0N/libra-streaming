@@ -1,0 +1,13 @@
+{
+  "eventId": "{{eventId}}",
+  "eventType": "ProfileDeleted",
+  "schemaVersion": 1,
+  "aggregateId": "{{profileId}}",
+  "aggregateVersion": 3,
+  "occurredAt": "{{occurredAt}}",
+  "correlationId": "{{correlationId}}",
+  "payload": {
+    "accountId": "{{accountId}}",
+    "profileId": "{{profileId}}"
+  }
+}
