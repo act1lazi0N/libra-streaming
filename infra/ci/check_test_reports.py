@@ -15,6 +15,18 @@ REQUIRED_MEDIA_SUITES = (
     "com.libra.streaming.media.delivery.ProtectedStreamServerIntegrationTest",
     "com.libra.streaming.media.storage.MediaStorageIntegrationTest",
 )
+# Analytics suites that need a real PostgreSQL (Testcontainers): migration and transactions, the service-JWT chain,
+# the refusal matrix, and startup/outage behavior. An in-memory database cannot stand in for any of them.
+REQUIRED_ANALYTICS_SUITES = (
+    "com.libra.streaming.recommendation.freshness.infrastructure.AnalyticsPersistenceIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.CoreServiceSecurityIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.CoreServiceRejectionIntegrationTest",
+    "com.libra.streaming.recommendation.AnalyticsStartupIntegrationTest",
+)
+REQUIRED_SUITES = {"media": REQUIRED_MEDIA_SUITES, "recommendation-analytics": REQUIRED_ANALYTICS_SUITES}
+# Every backend module must bring integration evidence; a module that is absent or has none fails the gate.
+REQUIRED_MODULES = ("core", "media", "recommendation-analytics")
+LABELS = {"core": "Core", "media": "Media", "recommendation-analytics": "Analytics"}
 
 
 def collect(root):
@@ -22,15 +34,14 @@ def collect(root):
     if started_at and not re.fullmatch(r"[0-9]+", started_at):
         raise ValueError("Malformed run start: LIBRA_VERIFY_STARTED_AT")
     reports = {}
-    media_sources = set()
+    sources = {}
     for module in sorted((root / "services").iterdir()):
         for source in sorted((module / "src/test/java").rglob("*Test.java")):
             package = re.search(r"^package\s+([\w.]+);", source.read_text(encoding="utf-8"), re.M)
             if not package:
                 raise ValueError(f"Missing test package: {source.name}")
             name = f"{package[1]}.{source.stem}"
-            if module.name == "media":
-                media_sources.add(name)
+            sources.setdefault(module.name, set()).add(name)
             lane = "failsafe" if source.stem.endswith("IntegrationTest") else "surefire"
             report = module / f"target/{lane}-reports/TEST-{name}.xml"
             if not report.is_file():
@@ -54,12 +65,13 @@ def collect(root):
                 case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
             raise ValueError(f"Failed or skipped suite: {name}")
         rows.append({"module": module, "lane": lane, "suite": name, **counts})
-    for name in REQUIRED_MEDIA_SUITES:
-        if name not in media_sources:
-            raise ValueError(f"Missing required Media suite source: {name}")
-    for module in ("core", "media"):
+    for module, names in REQUIRED_SUITES.items():
+        for name in names:
+            if name not in sources.get(module, ()):
+                raise ValueError(f"Missing required {LABELS[module]} suite source: {name}")
+    for module in REQUIRED_MODULES:
         if not any(row["lane"] == "failsafe" and row["module"] == module for row in rows):
-            raise ValueError(f"No {module.title()} integration evidence")
+            raise ValueError(f"No {LABELS[module]} integration evidence")
     return rows
 
 

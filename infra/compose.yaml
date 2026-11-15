@@ -204,6 +204,10 @@ services:
       RECOMMENDATION_DB_USERNAME: libra_recommendation
       RECOMMENDATION_DB_PASSWORD: recommendation_local
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # Only the public half and key ID of Core's dedicated Analytics key; the same switch enables both sides.
+      ANALYTICS_CORE_SERVICE_AUTH_ENABLED: ${CORE_ANALYTICS_ENABLED:-false}
+      ANALYTICS_CORE_SERVICE_PUBLIC_KEY: ${CORE_ANALYTICS_PUBLIC_KEY:-}
+      ANALYTICS_CORE_SERVICE_KEY_ID: ${CORE_ANALYTICS_KEY_ID:-}
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }

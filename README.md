@@ -204,5 +204,16 @@ policy. The shared corpus `contracts/fixtures/analytics-v1` (79 fixtures) is che
 `infra/ci/check_contracts.py`. Core integration tests prove that Core's outbox records
 and query bodies equal the fixtures, and that Core's adapter reaches the declared outcome
 for every downstream body. They found that Core accepted epoch timestamps, Base64 UUIDs
-and array dates the contract forbids; Core now rejects them. The Analytics runtime is
-still a scaffold.
+and array dates the contract forbids; Core now rejects them.
+
+RA01.2–RA01.4 turn the Analytics scaffold into a running foundation. See
+[persistence foundation](docs/analytics-foundation-ra01-2.md),
+[internal service authentication](docs/analytics-service-auth-ra01-3.md) and
+[authentication and startup hardening](docs/analytics-foundation-hardening-ra01-4.md).
+The service uses plain JDBC and Flyway on PostgreSQL (no JPA, no H2), keeps one confirmed
+checkpoint per consumed topic, and accepts only Core's dedicated RS256 service JWT on
+`/internal/**` with the exact scope per operation. Authentication is disabled by default;
+Compose passes Core's public key and key ID through `ANALYTICS_CORE_SERVICE_*`. No
+projection is served yet: an authorized query gets `503 ANALYTICS_NOT_READY` or
+`ANALYTICS_UNAVAILABLE`, never zeros. `infra/ci/check_test_reports.py` now fails unless
+four named Analytics integration suites (Testcontainers PostgreSQL) ran and passed.

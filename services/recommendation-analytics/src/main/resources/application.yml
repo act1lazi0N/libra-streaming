@@ -2,15 +2,28 @@ spring:
   application:
     name: recommendation-analytics-service
   datasource:
-    url: ${RECOMMENDATION_DB_URL:jdbc:postgresql://localhost:5432/libra_recommendation}
-    username: ${RECOMMENDATION_DB_USERNAME:libra_recommendation}
-    password: ${RECOMMENDATION_DB_PASSWORD:recommendation_local}
-  jpa:
-    open-in-view: false
-    hibernate:
-      ddl-auto: validate
+    # No defaults: a missing database setting stops startup instead of reaching a guessed local database.
+    url: ${RECOMMENDATION_DB_URL}
+    username: ${RECOMMENDATION_DB_USERNAME}
+    password: ${RECOMMENDATION_DB_PASSWORD}
+    hikari:
+      connection-timeout: 5000
+      validation-timeout: 2000
+      data-source-properties:
+        # A database that stops answering without closing the socket would otherwise block a request or the
+        # readiness probe forever. Seconds. Flyway shares this pool: a migration statement or a later query that
+        # legitimately runs longer must raise it first, or startup fails and repeats.
+        socketTimeout: ${RECOMMENDATION_DB_SOCKET_TIMEOUT_SECONDS:10}
+        connectTimeout: 5
   flyway:
     enabled: true
+    clean-disabled: true
+    validate-migration-naming: true
+    # Flyway ignores "future" migrations by default; an older build must not run on a newer schema.
+    ignore-migration-patterns: ""
+  web:
+    resources:
+      add-mappings: false # No static content: an unknown path is a contract 404, not a resource lookup.
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 server:
@@ -26,4 +39,12 @@ management:
       probes:
         enabled: true
       show-details: never
-
+      group:
+        readiness:
+          include: readinessState,db
+libra:
+  analytics:
+    core-service:
+      enabled: ${ANALYTICS_CORE_SERVICE_AUTH_ENABLED:false}
+      public-key: ${ANALYTICS_CORE_SERVICE_PUBLIC_KEY:}
+      key-id: ${ANALYTICS_CORE_SERVICE_KEY_ID:}
