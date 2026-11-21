@@ -104,6 +104,7 @@ input straight to private storage (a real CORS preflight against the bucket rule
 READY, and publishes it. A verified Premium viewer then plays it with the pinned hls.js using its own HttpOnly ticket
 cookie, seeks, renews through Core (the next segment's request carries the renewed ticket) and plays to the end, with
 no request mocked and no READY injected. `infra/smoke/check-media-m33.ps1` runs it after `pnpm install` in `web/`.
+[RA03 browser acceptance](infra/smoke/check-web-ra03.ps1) drives the real web product (the `web` image, Core, Media, Analytics) in Chrome through the ingress: `infra/smoke/web_ra03_seed.py` seeds content with real HLS and three viewers, then `web/e2e/ra03` covers sign-in/refresh, catalog, the player, resume and hardening cases; it needs all three JARs, `pnpm install` in `web/` and ffmpeg.
 [Outages and restarts](docs/media-outage-restart-hardening-m34.md) repeats the slice while Core, Media, Kafka, storage
 and PostgreSQL are stopped, killed, paused or restarted at chosen points, and checks what each interrupted operation
 converges to: one job per upload, READY recorded once, the selected output untouched by a resumed stale worker, no
@@ -271,4 +272,3 @@ by the server's clock, and reports progress so that only time really spent playi
 credited. Resume, continue watching and the next episode come from Core. `pnpm test` in
 `web/` runs the unit tests; `infra/smoke/check-web-ra03.ps1` runs the browser suite on the
 real stack.
-
