@@ -217,3 +217,19 @@ Compose passes Core's public key and key ID through `ANALYTICS_CORE_SERVICE_*`. 
 projection is served yet: an authorized query gets `503 ANALYTICS_NOT_READY` or
 `ANALYTICS_UNAVAILABLE`, never zeros. `infra/ci/check_test_reports.py` now fails unless
 four named Analytics integration suites (Testcontainers PostgreSQL) ran and passed.
+
+RA02.1–RA02.5 make Analytics consume Core's three topics. See
+[catalog and profile ingestion](docs/analytics-ingestion-ra02-1.md),
+[playback facts](docs/analytics-playback-facts-ra02-2.md),
+[retry, dead letters and redrive](docs/analytics-dead-letters-ra02-3.md),
+[bootstrap from Core](docs/analytics-bootstrap-ra02-4.md) and
+[ingestion hardening](docs/analytics-ingestion-hardening-ra02-5.md).
+Every record goes through one intake that validates it strictly against the V1 schemas,
+stores an event receipt and the projection change in one transaction, and lets Kafka
+commit the offset only afterwards. Catalog nodes keep the newest version, deleted
+profiles stay deleted, and playback facts add each accepted increment once, whatever the
+arrival order. Poison records go to `analytics.dead-letters.v1` and the `dead_letters`
+table; database outages are retried, never parked. A new Core endpoint set
+(`contracts/http/core-internal-analytics.v1.json`, Analytics' own service key) lets
+Analytics rebuild from catalog and profile snapshots and a replay of the playback outbox.
+Fault-injection suites show the stored result converges to the canonical event set.

@@ -43,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Real PostgreSQL through Testcontainers: migration, checkpoint store, transactions and health. */
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(properties = "libra.analytics.consumers.enabled=false")
 @DirtiesContext
 class AnalyticsPersistenceIntegrationTest {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18.6-alpine")
@@ -71,9 +71,9 @@ class AnalyticsPersistenceIntegrationTest {
     void emptyDatabaseMigratesToExactlyTheVersionedSchema() {
         flyway.validate();
         assertThat(jdbc.queryForList("SELECT version || ':' || success FROM flyway_schema_history ORDER BY installed_rank",
-                String.class)).containsExactly("1:true");
+                String.class)).containsExactly("1:true", "2:true", "3:true", "4:true", "5:true", "6:true", "7:true", "8:true");
         assertThat(jdbc.queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' "
-                + "ORDER BY table_name", String.class)).containsExactly("flyway_schema_history", "input_checkpoints");
+                + "ORDER BY table_name", String.class)).containsExactly("bootstrap_progress", "catalog_nodes", "dead_letters", "flyway_schema_history", "input_checkpoints", "playback_facts", "playback_sessions", "processed_events", "profile_watch_days", "profiles", "statistics_account_days");
         assertThat(jdbc.queryForObject("SELECT current_database()", String.class)).isEqualTo("analytics_persistence");
         assertThat(jdbc.queryForObject("SELECT version()", String.class)).startsWith("PostgreSQL 18");
         assertThat(jdbc.queryForList("SELECT topic FROM input_checkpoints WHERE confirmed_at IS NULL ORDER BY topic",

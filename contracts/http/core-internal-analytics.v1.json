@@ -1,0 +1,158 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LIBRA Core internal Analytics bootstrap contract",
+    "version": "1.0.0",
+    "description": "Milestone RA02.4. Analytics reads the state it would have built from core.catalog.v1 and core.profiles.v1 as versioned snapshots, and replays core.playback.v1 from Core's outbox, so a new or rebuilt Analytics does not depend on Kafka retention. Private network only; Nginx does not route /internal/. Disabled by default. Pin a dedicated RSA key and kid (never the playback key, Core's outbound Analytics key or Media's key); RS256, issuer libra-analytics-services, subject libra-analytics, sole audience libra-core-internal, purpose service-access, nonblank jti of at most 128 characters, required iat/exp, no future iat, strictly future exp, lifetime <=60 seconds, zero leeway. Scope analytics.bootstrap:read; a token's scopes are intersected with the scopes its subject may hold. Every page is one repeatable-read snapshot of committed data; pages are not mutually consistent, which the consumer's version rules absorb. Snapshot versions are Core's current aggregate versions: a version may be higher than the version of the latest event (Core also counts changes that emit no event), and the state at that version is the state the latest event carried. Profile tombstones come from ProfileDeleted outbox events. Playback events are the outbox rows exactly as the publisher sends them, ordered by insert time and event ID; an event committed after its position was paged is not replayed but is still published live. See docs/analytics-bootstrap-ra02-4.md."
+  },
+  "servers": [{ "url": "http://core:8081" }],
+  "security": [{ "analyticsServiceBearer": [] }],
+  "paths": {
+    "/internal/v1/analytics/snapshots/catalog": {
+      "get": {
+        "operationId": "internalAnalyticsCatalogSnapshot",
+        "summary": "Page of catalog nodes, ordered by contentId, at their current version",
+        "parameters": [
+          { "$ref": "#/components/parameters/AfterId" },
+          { "$ref": "#/components/parameters/Limit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page; next is the last contentId when the page is full, else null; no-store",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CatalogPage" } } }
+          },
+          "default": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/internal/v1/analytics/snapshots/profiles": {
+      "get": {
+        "operationId": "internalAnalyticsProfileSnapshot",
+        "summary": "Page of live profiles and tombstones of deleted ones, ordered by profileId",
+        "parameters": [
+          { "$ref": "#/components/parameters/AfterId" },
+          { "$ref": "#/components/parameters/Limit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page; next is the last profileId when the page is full, else null; no-store",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProfilePage" } } }
+          },
+          "default": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/internal/v1/analytics/events/playback": {
+      "get": {
+        "operationId": "internalAnalyticsPlaybackReplay",
+        "summary": "Page of core.playback.v1 events from the outbox, with their original identity",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "description": "Opaque cursor returned as next by the previous page",
+            "schema": { "type": "string", "pattern": "^[0-9]{1,19}\\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
+          },
+          { "$ref": "#/components/parameters/Limit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page; next is a cursor when the page is full, else null; no-store",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlaybackPage" } } }
+          },
+          "default": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "analyticsServiceBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Dedicated pinned Analytics RSA key; scope analytics.bootstrap:read."
+      }
+    },
+    "parameters": {
+      "AfterId": {
+        "name": "after",
+        "in": "query",
+        "required": false,
+        "description": "Exclusive lower bound: the next value of the previous page (lowercase dashed UUID)",
+        "schema": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Page size; default 200",
+        "schema": { "type": "integer", "minimum": 1, "maximum": 500 }
+      }
+    },
+    "schemas": {
+      "CatalogItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["contentId", "version", "kind", "parentId", "ordinal", "published", "active", "publishedAt"],
+        "properties": {
+          "contentId": { "type": "string", "format": "uuid" },
+          "version": { "type": "integer", "minimum": 1 },
+          "kind": { "$ref": "./core-catalog-profiles.v1.json#/components/schemas/Kind" },
+          "parentId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+          "ordinal": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+          "published": { "anyOf": [{ "$ref": "./core-catalog-profiles.v1.json#/components/schemas/Revision" }, { "type": "null" }] },
+          "active": { "anyOf": [{ "$ref": "./core-catalog-profiles.v1.json#/components/schemas/Binding" }, { "type": "null" }] },
+          "publishedAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] }
+        }
+      },
+      "CatalogPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "next"],
+        "properties": {
+          "items": { "type": "array", "maxItems": 500, "items": { "$ref": "#/components/schemas/CatalogItem" } },
+          "next": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] }
+        }
+      },
+      "ProfileItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["profileId", "accountId", "version", "deleted"],
+        "properties": {
+          "profileId": { "type": "string", "format": "uuid" },
+          "accountId": { "type": "string", "format": "uuid" },
+          "version": { "type": "integer", "minimum": 1 },
+          "deleted": { "type": "boolean" }
+        }
+      },
+      "ProfilePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "next"],
+        "properties": {
+          "items": { "type": "array", "maxItems": 500, "items": { "$ref": "#/components/schemas/ProfileItem" } },
+          "next": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] }
+        }
+      },
+      "PlaybackPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["events", "next"],
+        "properties": {
+          "events": { "type": "array", "maxItems": 500, "items": { "$ref": "../events/core-playback-progress.v1.schema.json" } },
+          "next": { "anyOf": [{ "type": "string", "pattern": "^[0-9]{1,19}\\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }, { "type": "null" }] }
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Problem Details: 400 invalid cursor or limit; 401 missing/invalid credentials; 403 wrong scope or identity; 500 internal failure. Error details omit payloads and exception text.",
+        "content": {
+          "application/problem+json": { "schema": { "$ref": "./core-analytics.v1.json#/components/schemas/Problem" } }
+        }
+      }
+    }
+  }
+}

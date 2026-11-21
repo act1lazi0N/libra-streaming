@@ -26,6 +26,25 @@ spring:
       add-mappings: false # No static content: an unknown path is a contract 404, not a resource lookup.
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # Offsets move only when a listener returns after its database commit (AckMode.RECORD).
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      max-poll-records: 50
+      properties:
+        isolation.level: read_committed
+        max.partition.fetch.bytes: 524288
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 10000
+        max.block.ms: 10000
 server:
   port: ${RECOMMENDATION_PORT:8083}
   shutdown: graceful
@@ -44,6 +63,26 @@ management:
           include: readinessState,db
 libra:
   analytics:
+    bootstrap:
+      enabled: ${ANALYTICS_BOOTSTRAP_ENABLED:false}
+      core-base-url: ${ANALYTICS_BOOTSTRAP_CORE_BASE_URL:}
+      private-key: ${ANALYTICS_BOOTSTRAP_PRIVATE_KEY:}
+      public-key: ${ANALYTICS_BOOTSTRAP_PUBLIC_KEY:}
+      key-id: ${ANALYTICS_BOOTSTRAP_KEY_ID:}
+      generation: ${ANALYTICS_BOOTSTRAP_GENERATION:1}
+      page-size: ${ANALYTICS_BOOTSTRAP_PAGE_SIZE:200}
+    dead-letters:
+      redrive-on-startup: ${ANALYTICS_DEAD_LETTERS_REDRIVE_ON_STARTUP:false}
+    consumers:
+      # The three Core topic consumers and the dead-letter capture consumer.
+      enabled: ${ANALYTICS_CONSUMERS_ENABLED:true}
+    freshness:
+      checkpoints:
+        # Confirms input checkpoints from the consumer groups' committed offsets (RA04.2). Follows the consumers
+        # unless set explicitly: without them nothing would ever be confirmed anyway.
+        enabled: ${ANALYTICS_FRESHNESS_CHECKPOINTS_ENABLED:${libra.analytics.consumers.enabled}}
+        interval: ${ANALYTICS_FRESHNESS_CHECKPOINT_INTERVAL:5s}
+        admin-timeout: ${ANALYTICS_FRESHNESS_ADMIN_TIMEOUT:5s}
     core-service:
       enabled: ${ANALYTICS_CORE_SERVICE_AUTH_ENABLED:false}
       public-key: ${ANALYTICS_CORE_SERVICE_PUBLIC_KEY:}

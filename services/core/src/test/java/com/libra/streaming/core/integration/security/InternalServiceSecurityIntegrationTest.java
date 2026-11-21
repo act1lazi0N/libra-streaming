@@ -48,6 +48,14 @@ class InternalServiceSecurityIntegrationTest {
     @DynamicPropertySource static void infrastructure(DynamicPropertyRegistry registry) {
         TestIdentityProperties.register(registry);
         registry.add("libra.services.media.enabled", () -> true);
+        registry.add("libra.services.analytics.enabled", () -> true);
+        registry.add("libra.services.analytics.public-key", () -> Base64.getEncoder().encodeToString(ANALYTICS.getPublic().getEncoded()));
+        registry.add("libra.services.analytics.key-id", () -> "analytics-bootstrap");
+        registry.add("libra.analytics.enabled", () -> true);
+        registry.add("libra.analytics.base-url", () -> "http://127.0.0.1:1");
+        registry.add("libra.analytics.private-key", () -> Base64.getEncoder().encodeToString(OUTBOUND.getPrivate().getEncoded()));
+        registry.add("libra.analytics.public-key", () -> Base64.getEncoder().encodeToString(OUTBOUND.getPublic().getEncoded()));
+        registry.add("libra.analytics.key-id", () -> "core-outbound");
         registry.add("libra.services.media.public-key", () -> Base64.getEncoder().encodeToString(MEDIA.getPublic().getEncoded()));
         registry.add("libra.services.media.key-id", () -> "media-fixture");
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
@@ -91,6 +99,74 @@ class InternalServiceSecurityIntegrationTest {
     @AfterEach void close() { http.close(); }
 
     static final KeyPair MEDIA = pair();
+    static final KeyPair ANALYTICS = pair();
+    static final KeyPair OUTBOUND = pair();
+    static final List<String> BOOTSTRAP = List.of("/internal/v1/analytics/snapshots/catalog",
+            "/internal/v1/analytics/snapshots/profiles", "/internal/v1/analytics/events/playback");
+
+    // Real HTTP security chain and PostgreSQL; no mocked authorization or bootstrap store.
+    @Test void analyticsIdentityReachesBootstrapButCannotBecomeMedia() throws Exception {
+        String valid = analyticsToken(c -> {}, ANALYTICS, "analytics-bootstrap");
+        for (String path : BOOTSTRAP) {
+            assertThat(bearer("GET", path, valid).statusCode()).isEqualTo(200);
+            denied(path, token(c -> {}), 403);
+            denied(path, token(c -> c.claim("scope", "analytics.bootstrap:read")), 403);
+        }
+        String path = "/internal/v1/media/bindings/" + UUID.randomUUID();
+        denied(path, valid, 403);
+        denied(path, analyticsToken(c -> c.claim("scope", "media.bindings:read"), ANALYTICS, "analytics-bootstrap"), 403);
+    }
+
+    @Test void analyticsInvalidClaimsKeysAndAlgorithmsFailClosed() throws Exception {
+        List<java.util.function.Consumer<JWTClaimsSet.Builder>> invalid = List.of(
+                c -> c.issuer("libra-core"), c -> c.subject("libra-media"), c -> c.audience("libra-web"),
+                c -> c.audience(List.of("libra-core-internal", "extra")), c -> c.claim("purpose", "access"),
+                c -> c.jwtID(null), c -> c.issueTime(null), c -> c.expirationTime(null),
+                c -> c.expirationTime(Date.from(clock.instant().plusSeconds(61))),
+                c -> c.issueTime(Date.from(clock.instant().plusSeconds(1))),
+                c -> c.issueTime(Date.from(clock.instant().minusSeconds(61))).expirationTime(Date.from(clock.instant().minusSeconds(1))));
+        var tokens = new ArrayList<String>();
+        for (var edit : invalid) { tokens.add(analyticsToken(edit, ANALYTICS, "analytics-bootstrap")); }
+        tokens.add(analyticsToken(c -> {}, MEDIA, "analytics-bootstrap"));
+        tokens.add(analyticsToken(c -> {}, ANALYTICS, "unknown"));
+        tokens.add(analyticsToken(c -> {}, ANALYTICS, null));
+        var claims = SignedJWT.parse(analyticsToken(c -> {}, ANALYTICS, "analytics-bootstrap")).getJWTClaimsSet();
+        var hs = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.HS256).keyID("analytics-bootstrap").build(), claims);
+        hs.sign(new com.nimbusds.jose.crypto.MACSigner(new byte[32]));
+        tokens.add(hs.serialize()); tokens.add(new PlainJWT(claims).serialize()); tokens.add("malformed-token");
+        for (String path : BOOTSTRAP) {
+            for (String raw : tokens) { denied(path, raw, 401); }
+        }
+    }
+
+    @Test void bootstrapRejectsBrowserCookiesAndPlaybackTickets() throws Exception {
+        var content = movie();
+        String ticket = playback.admit(viewer, new Admission(profile, content.id())).ticket();
+        for (String path : BOOTSTRAP) {
+            problem(request(viewer, "GET", path, null, false), 401, null);
+            denied(path, ticket, 401);
+            var response = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                    .header("Cookie", "__Secure-LIBRA_PLAYBACK=" + ticket).GET().build(), HttpResponse.BodyHandlers.ofString());
+            problem(response, 401, ticket);
+        }
+    }
+
+    private String analyticsToken(java.util.function.Consumer<JWTClaimsSet.Builder> edit, KeyPair key, String kid) throws Exception {
+        var claims = new JWTClaimsSet.Builder().issuer("libra-analytics-services").subject("libra-analytics")
+                .audience("libra-core-internal").jwtID(UUID.randomUUID().toString())
+                .issueTime(Date.from(clock.instant())).expirationTime(Date.from(clock.instant().plusSeconds(60)))
+                .claim("purpose", "service-access").claim("scope", "analytics.bootstrap:read");
+        edit.accept(claims);
+        var jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(kid).build(), claims.build());
+        jwt.sign(new RSASSASigner(key.getPrivate())); return jwt.serialize();
+    }
+    private void denied(String path, String raw, int status) throws Exception { problem(bearer("GET", path, raw), status, raw); }
+    private void problem(HttpResponse<String> response, int status, String raw) {
+        assertThat(response.statusCode()).isEqualTo(status);
+        assertThat(response.headers().firstValue("Content-Type").orElse("")).startsWith("application/problem+json");
+        if (raw != null) { assertThat(response.body().contains(raw)).as("token is not disclosed").isFalse(); }
+    }
+
     private static KeyPair pair() {
         try { var generator = java.security.KeyPairGenerator.getInstance("RSA"); generator.initialize(2048); return generator.generateKeyPair(); }
         catch (java.security.GeneralSecurityException exception) { throw new IllegalStateException(exception); }
@@ -107,7 +183,9 @@ class InternalServiceSecurityIntegrationTest {
     private HttpResponse<String> bearer(String method, String path, String token) throws Exception {
         var builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).method(method, HttpRequest.BodyPublishers.noBody());
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
-        return http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        var response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() == 401 || response.statusCode() == 403) { problem(response, response.statusCode(), token); }
+        return response;
     }
     @Test void exactMediaServiceIdentityReadsBindingAndBrowserCookiesCannot() throws Exception {
         var content = ready(create(Kind.MOVIE, null, null));
@@ -188,6 +266,13 @@ class InternalServiceSecurityIntegrationTest {
         }
         if (!cookies.isEmpty()) { builder.header("Cookie", String.join("; ", cookies)); }
         if (body != null) { builder.header("Content-Type", "application/json"); }
-        return http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        var response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() == 401 || response.statusCode() == 403) {
+            problem(response, response.statusCode(), null);
+            for (String cookie : cookies) {
+                assertThat(response.body().contains(cookie.substring(cookie.indexOf('=') + 1))).as("cookie is not disclosed").isFalse();
+            }
+        }
+        return response;
     }
 }

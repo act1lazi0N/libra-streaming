@@ -15,6 +15,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
@@ -33,7 +35,7 @@ import tools.jackson.databind.ObjectMapper;
 import static com.libra.streaming.recommendation.internalapi.infrastructure.ServiceTokens.CORE;
 import static com.libra.streaming.recommendation.internalapi.infrastructure.ServiceTokens.KID;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -45,24 +47,55 @@ class CoreServiceSecurityIntegrationTest extends InternalApiFixture {
     @Autowired @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping handlers;
     boolean writes;
 
+    @Test
+    void recommendationsDatabaseFailureIsUnavailableAfterAValidBody() throws Exception {
+        org.mockito.Mockito.doThrow(new org.springframework.dao.DataAccessResourceFailureException("canary"))
+                .when(freshness).updatedAt(Projection.RECOMMENDATIONS);
+        try {
+            mvc.perform(post(RECOMMENDATIONS).contentType("application/json").content(recommendationsBody())
+                    .header("Authorization", bearer(ServiceTokens.token(RECOMMENDATIONS_SCOPE))))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("code").value("ANALYTICS_UNAVAILABLE"));
+        } finally {
+            org.mockito.Mockito.reset(freshness);
+        }
+    }
+
+    @Test
+    void recommendationsValidateBodiesBeforeReadingFreshness() throws Exception {
+        String token = bearer(ServiceTokens.token(RECOMMENDATIONS_SCOPE));
+        mvc.perform(post(RECOMMENDATIONS).header("Authorization", token))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("code").value("UNSUPPORTED_MEDIA_TYPE"));
+        mvc.perform(post(RECOMMENDATIONS).header("Authorization", token).contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("code").value("INVALID_REQUEST"));
+        mvc.perform(post(RECOMMENDATIONS).header("Authorization", token).contentType("application/json")
+                .content(" ".repeat(1025)))
+                .andExpect(status().is(413)).andExpect(jsonPath("code").value("PAYLOAD_TOO_LARGE"));
+        mvc.perform(post(RECOMMENDATIONS).contentType("application/json").content(recommendationsBody()))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("code").value("AUTHENTICATION_REQUIRED"));
+        verifyNoInteractions(freshness);
+    }
+
     @Override boolean expectsCheckpointWrites() { return writes; }
 
     @Test
     void eachScopeReachesOnlyItsOwnOperation() throws Exception {
-        mvc.perform(post(STATISTICS).header("Authorization", bearer(ServiceTokens.token(STATISTICS_SCOPE))))
+        mvc.perform(post(STATISTICS).contentType("application/json").content(statisticsBody())
+                .header("Authorization", bearer(ServiceTokens.token(STATISTICS_SCOPE))))
                 .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("code").value("ANALYTICS_NOT_READY"));
         verify(freshness).updatedAt(Projection.STATISTICS);
-        mvc.perform(post(RECOMMENDATIONS).header("Authorization", bearer(ServiceTokens.token(RECOMMENDATIONS_SCOPE))))
+        mvc.perform(post(RECOMMENDATIONS).contentType("application/json").content(recommendationsBody()).header("Authorization", bearer(ServiceTokens.token(RECOMMENDATIONS_SCOPE))))
                 .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("code").value("ANALYTICS_NOT_READY"));
         verify(freshness).updatedAt(Projection.RECOMMENDATIONS);
 
+        clearInvocations(freshness);
         mvc.perform(post(STATISTICS).header("Authorization", bearer(ServiceTokens.token(RECOMMENDATIONS_SCOPE))))
                 .andExpect(status().isForbidden()).andExpect(content().contentType("application/problem+json"))
                 .andExpect(header().string("Cache-Control", "no-store")).andExpect(jsonPath("code").value("ACCESS_DENIED"));
-        mvc.perform(post(RECOMMENDATIONS).header("Authorization", bearer(ServiceTokens.token(STATISTICS_SCOPE))))
+        mvc.perform(post(RECOMMENDATIONS).contentType("application/json").content(recommendationsBody()).header("Authorization", bearer(ServiceTokens.token(STATISTICS_SCOPE))))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("code").value("ACCESS_DENIED"));
-        verify(freshness, times(1)).updatedAt(Projection.STATISTICS);
-        verify(freshness, times(1)).updatedAt(Projection.RECOMMENDATIONS);
+        verifyNoInteractions(freshness);
     }
 
     @Test
@@ -81,7 +114,7 @@ class CoreServiceSecurityIntegrationTest extends InternalApiFixture {
         // Core sends Accept: application/json; the error body is a problem document regardless.
         String body = mvc.perform(post(STATISTICS).header("Authorization", bearer(token))
                         .header("X-Correlation-ID", correlation).accept("application/json")
-                        .contentType("application/json").content("{\"from\":\"2026-11-01\",\"to\":\"2026-11-02\"}"))
+                        .contentType("application/json").content(statisticsBody()))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentType("application/problem+json"))
                 .andExpect(header().string("Cache-Control", "no-store"))
@@ -93,28 +126,28 @@ class CoreServiceSecurityIntegrationTest extends InternalApiFixture {
     }
 
     @Test
-    void anAuthorizedCallNeverGetsZerosWhileNoProjectionIsServed() throws Exception {
+    void aConfirmedPlaybackCheckpointAllowsRealZeroStatisticsWithoutMovingCheckpoints() throws Exception {
         writes = true;
         String statistics = bearer(ServiceTokens.token(STATISTICS_SCOPE));
         String recommendations = bearer(ServiceTokens.token(RECOMMENDATIONS_SCOPE));
-        freshness.confirm(InputTopic.PLAYBACK, Instant.now().minusSeconds(30));
-        String body = mvc.perform(post(STATISTICS).header("Authorization", statistics))
-                .andExpect(status().isServiceUnavailable()).andReturn().getResponse().getContentAsString();
-        var mapper = new ObjectMapper();
-        Map<?, ?> actual = mapper.readValue(body, Map.class);
-        String fixture = Files.readString(FIXTURES.resolve("problem-unavailable.json"))
-                .replace("{{correlationId}}", (String) actual.get("correlationId"));
-        assertThat(actual).isEqualTo(mapper.readValue(fixture, Map.class));
+        Instant checkpoint = Instant.now().minusSeconds(30).truncatedTo(ChronoUnit.SECONDS);
+        freshness.confirm(InputTopic.PLAYBACK, checkpoint);
+        mvc.perform(post(STATISTICS).contentType("application/json").content(statisticsBody())
+                        .header("Authorization", statistics))
+                .andExpect(status().isOk()).andExpect(jsonPath("updatedAt").value(checkpoint.toString()))
+                .andExpect(jsonPath("qualifiedViews").value(0)).andExpect(jsonPath("uniqueViewers").value(0))
+                .andExpect(jsonPath("acceptedWatchedMs").value(0));
+        verify(freshness).updatedAt(Projection.STATISTICS);
         // Recommendations depend on all three topics: one confirmed input is not enough.
-        mvc.perform(post(RECOMMENDATIONS).header("Authorization", recommendations))
+        mvc.perform(post(RECOMMENDATIONS).contentType("application/json").content(recommendationsBody()).header("Authorization", recommendations))
                 .andExpect(jsonPath("code").value("ANALYTICS_NOT_READY"));
         freshness.confirm(InputTopic.CATALOG, Instant.now().minusSeconds(30));
         freshness.confirm(InputTopic.PROFILES, Instant.now().minusSeconds(30));
-        mvc.perform(post(RECOMMENDATIONS).header("Authorization", recommendations))
-                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("code").value("ANALYTICS_UNAVAILABLE"));
-        // Answering did not move any checkpoint.
+        mvc.perform(post(RECOMMENDATIONS).contentType("application/json").content(recommendationsBody()).header("Authorization", recommendations))
+                .andExpect(status().isOk()).andExpect(jsonPath("contentIds").isArray());
         List<Map<String, Object>> confirmed = rows();
-        mvc.perform(post(STATISTICS).header("Authorization", statistics)).andExpect(status().isServiceUnavailable());
+        mvc.perform(post(STATISTICS).contentType("application/json").content(statisticsBody())
+                .header("Authorization", statistics)).andExpect(status().isOk());
         assertThat(rows()).isEqualTo(confirmed);
     }
 

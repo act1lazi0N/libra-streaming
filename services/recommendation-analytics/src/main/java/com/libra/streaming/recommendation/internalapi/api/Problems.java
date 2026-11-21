@@ -21,6 +21,9 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class Problems {
     public enum Code {
+        INVALID_REQUEST(HttpStatus.BAD_REQUEST, "The request does not satisfy the operation's contract."),
+        PAYLOAD_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "The request body is too large."),
+        UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "The request body must be UTF-8 application/json."),
         AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "A valid service credential is required."),
         ACCESS_DENIED(HttpStatus.FORBIDDEN, "The service credential does not allow this operation."),
         NOT_FOUND(HttpStatus.NOT_FOUND, "The operation does not exist."),

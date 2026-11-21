@@ -44,7 +44,8 @@ class AnalyticsStartupIntegrationTest {
         for (int run = 0; run < 2; run++) {
             try (var context = start(database)) { assertThat(context.isRunning()).isTrue(); }
         }
-        assertThat(query(database, "SELECT version || ':' || success FROM flyway_schema_history")).containsExactly("1:true");
+        assertThat(query(database, "SELECT version || ':' || success FROM flyway_schema_history ORDER BY installed_rank")).containsExactly("1:true", "2:true", "3:true", "4:true", "5:true", "6:true", "7:true", "8:true");
+        assertThat(query(database, "SELECT to_regclass('public.bootstrap_progress') IS NOT NULL")).containsExactly("t");
         assertThat(query(database, "SELECT count(*) FROM input_checkpoints")).containsExactly("3");
     }
 
@@ -101,9 +102,11 @@ class AnalyticsStartupIntegrationTest {
         try (var context = start(database)) { assertThat(context.isRunning()).isTrue(); }
         assertThatThrownBy(() -> start(database, "--spring.flyway.locations=classpath:db/migration,classpath:db/broken"))
                 .isInstanceOf(Exception.class);
+        assertThat(query(database, "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' "
+                + "AND table_name = 'half_applied'")).containsExactly("0");
         assertThat(query(database, "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' "
-                + "ORDER BY table_name")).containsExactly("flyway_schema_history", "input_checkpoints");
-        assertThat(query(database, "SELECT version || ':' || success FROM flyway_schema_history")).containsExactly("1:true");
+                + "ORDER BY table_name")).containsExactly("bootstrap_progress", "catalog_nodes", "dead_letters", "flyway_schema_history", "input_checkpoints", "playback_facts", "playback_sessions", "processed_events", "profile_watch_days", "profiles", "statistics_account_days");
+        assertThat(query(database, "SELECT version || ':' || success FROM flyway_schema_history ORDER BY installed_rank")).containsExactly("1:true", "2:true", "3:true", "4:true", "5:true", "6:true", "7:true", "8:true");
         assertThat(query(database, "SELECT count(*) FROM input_checkpoints")).containsExactly("3");
         try (var context = start(database)) { assertThat(context.isRunning()).isTrue(); }
     }
@@ -120,7 +123,7 @@ class AnalyticsStartupIntegrationTest {
         String newer = database();
         try (var context = start(newer)) { assertThat(context.isRunning()).isTrue(); }
         execute(newer, "INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, "
-                + "installed_by, execution_time, success) VALUES (2, '99', 'from a newer build', 'SQL', "
+                + "installed_by, execution_time, success) VALUES ((SELECT max(installed_rank) + 1 FROM flyway_schema_history), '99', 'from a newer build', 'SQL', "
                 + "'V99__from_a_newer_build.sql', 1, current_user, 1, true)");
         assertThatThrownBy(() -> start(newer)).isInstanceOf(Exception.class);
 
@@ -184,7 +187,13 @@ class AnalyticsStartupIntegrationTest {
                 .timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer " + ServiceTokens.token("statistics:read"))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+                .POST(HttpRequest.BodyPublishers.ofString(window())).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** A valid one-day window, so a query reaches the data path (RA04.2 rejects an invalid body first). */
+    private static String window() {
+        String day = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(1).toString();
+        return "{\"from\":\"" + day + "\",\"to\":\"" + day + "\"}";
     }
 
     private static ConfigurableApplicationContext start(String database, String... extra) {
@@ -196,7 +205,9 @@ class AnalyticsStartupIntegrationTest {
     }
 
     private static ConfigurableApplicationContext run(String... arguments) {
-        return new SpringApplicationBuilder(RecommendationAnalyticsApplication.class).run(arguments);
+        List<String> disabled = new ArrayList<>(List.of(arguments));
+        disabled.add("--libra.analytics.consumers.enabled=false");
+        return new SpringApplicationBuilder(RecommendationAnalyticsApplication.class).run(disabled.toArray(String[]::new));
     }
 
     private static String database() throws SQLException {

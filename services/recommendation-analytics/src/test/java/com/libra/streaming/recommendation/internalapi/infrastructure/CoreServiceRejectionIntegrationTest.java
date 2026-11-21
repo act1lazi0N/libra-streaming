@@ -1,5 +1,6 @@
 package com.libra.streaming.recommendation.internalapi.infrastructure;
 
+import com.libra.streaming.recommendation.freshness.domain.Projection;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.PlainJWT;
@@ -39,8 +40,11 @@ class CoreServiceRejectionIntegrationTest extends InternalApiFixture {
     /** Positive control: the chain accepts an unmodified token, so the refusals below are caused by the mutation. */
     @BeforeEach
     void anUnmodifiedTokenIsAccepted() throws Exception {
-        mvc.perform(post(STATISTICS).header("Authorization", bearer(ServiceTokens.token(STATISTICS_SCOPE))))
-                .andExpect(status().isServiceUnavailable());
+        mvc.perform(post(STATISTICS).contentType("application/json")
+                        .content(statisticsBody())
+                        .header("Authorization", bearer(ServiceTokens.token(STATISTICS_SCOPE))))
+                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("code").value("ANALYTICS_NOT_READY"));
+        Mockito.verify(freshness).updatedAt(Projection.STATISTICS);
         Mockito.clearInvocations(freshness);
     }
 

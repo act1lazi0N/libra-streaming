@@ -78,6 +78,11 @@ libra:
       enabled: ${CORE_MEDIA_SERVICE_AUTH_ENABLED:false}
       public-key: ${CORE_MEDIA_SERVICE_PUBLIC_KEY:}
       key-id: ${CORE_MEDIA_SERVICE_KEY_ID:}
+    analytics:
+      # Analytics' own bootstrap identity (RA02.4); distinct from Core's outbound Analytics key below.
+      enabled: ${CORE_ANALYTICS_SERVICE_AUTH_ENABLED:false}
+      public-key: ${CORE_ANALYTICS_SERVICE_PUBLIC_KEY:}
+      key-id: ${CORE_ANALYTICS_SERVICE_KEY_ID:}
   analytics:
     enabled: ${CORE_ANALYTICS_ENABLED:false}
     base-url: ${CORE_ANALYTICS_BASE_URL:}

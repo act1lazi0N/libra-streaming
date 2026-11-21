@@ -1,6 +1,8 @@
 package com.libra.streaming.recommendation.internalapi.infrastructure;
 
 import com.libra.streaming.recommendation.freshness.application.ProjectionFreshness;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -26,9 +28,9 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
  * One application context on one real PostgreSQL for the internal API suites, with service authentication enabled
  * for {@link ServiceTokens#CORE}. The spy counts handler work; it does not replace behavior.
  */
-@SpringBootTest
+@SpringBootTest(properties = "libra.analytics.consumers.enabled=false")
 @ExtendWith(OutputCaptureExtension.class)
-abstract class InternalApiFixture {
+public abstract class InternalApiFixture {
     static final String STATISTICS = "/internal/v1/statistics/query";
     static final String RECOMMENDATIONS = "/internal/v1/recommendations/query";
     static final String STATISTICS_SCOPE = "statistics:read";
@@ -51,7 +53,7 @@ abstract class InternalApiFixture {
     }
 
     @Autowired WebApplicationContext context;
-    @Autowired JdbcTemplate jdbc;
+    @Autowired protected JdbcTemplate jdbc;
     @MockitoSpyBean ProjectionFreshness freshness;
     MockMvc mvc;
     List<Map<String, Object>> before;
@@ -74,6 +76,16 @@ abstract class InternalApiFixture {
 
     List<Map<String, Object>> rows() {
         return jdbc.queryForList("SELECT topic, confirmed_at FROM input_checkpoints ORDER BY topic");
+    }
+
+    static String statisticsBody() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        return "{\"from\":\"" + today.minusDays(1) + "\",\"to\":\"" + today + "\"}";
+    }
+
+    static String recommendationsBody() {
+        return "{\"accountId\":\"00000000-0000-0000-0000-000000000001\","
+                + "\"profileId\":\"00000000-0000-0000-0000-000000000002\",\"limit\":20}";
     }
 
     static String bearer(String token) { return "Bearer " + token; }
