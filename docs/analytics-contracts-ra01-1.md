@@ -149,6 +149,8 @@ How each topic is applied:
 `updatedAt` is the **confirmed checkpoint** of the projections an answer depends on: the latest instant *T* at which
 Analytics had committed every record available on those input partitions. A background checkpoint advances *T*
 while consumer lag is zero. A quiet topic therefore stays fresh, and a stalled consumer stops advancing *T*.
+RA04.2 implements this with a watermark per topic instead of a "lag is zero" test, with the same meaning of *T*;
+see [Statistics API and freshness](analytics-statistics-api-ra04-2.md#freshness-from-consumer-progress).
 
 - Statistics depend on `core.playback.v1`. Recommendations depend on all three topics; their `updatedAt` is the
   oldest of the three checkpoints.

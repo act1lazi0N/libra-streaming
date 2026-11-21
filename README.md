@@ -233,3 +233,15 @@ table; database outages are retried, never parked. A new Core endpoint set
 (`contracts/http/core-internal-analytics.v1.json`, Analytics' own service key) lets
 Analytics rebuild from catalog and profile snapshots and a replay of the playback outbox.
 Fault-injection suites show the stored result converges to the canonical event set.
+
+RA04.1–RA04.2 serve platform statistics. See
+[daily statistics](docs/analytics-statistics-ra04-1.md) and
+[statistics API and freshness](docs/analytics-statistics-api-ra04-2.md). Each playback
+fact updates a per-day, per-account rollup in its intake transaction: one qualified
+view per session on the day of its lowest qualifying sequence, watched time on the
+day of each event, and unique viewers counted as distinct accounts over the whole
+window. `POST /internal/v1/statistics/query` now answers with real totals once the
+playback checkpoint is confirmed. A background scheduler confirms checkpoints from
+the consumer groups' committed offsets, never from request or event time, so a quiet
+topic stays fresh and a stalled consumer or broker ages `updatedAt` instead of
+returning zeros.
