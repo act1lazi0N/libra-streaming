@@ -1,0 +1,17 @@
+# RA03 overlay, applied after compose.media-m29.yaml (check-media-m29.ps1 -Milestone RA03). Unlike the M33 overlay there
+# is no stand-in: `web` is the REAL service built from web/Dockerfile (left exactly as infra/compose.yaml defines it)
+# and recommendation-analytics runs the JAR from clean verify. The ingress listens on a loopback port chosen before
+# startup, because Core's public base URL and Media's browser origin (the storage CORS rule) must name the page's
+# exact origin. All four upstreams of infra/nginx/nginx.conf now exist, so no host alias is needed.
+# Paths here resolve from infra/, the first Compose file's directory.
+services:
+  recommendation-analytics:
+    build: !override { context: .., dockerfile: infra/smoke/analytics.Dockerfile }
+  nginx:
+    ports: !override ["127.0.0.1:${LIBRA_RA03_INGRESS_PORT:?Run check-media-m29.ps1 -Milestone RA03}:80"]
+    extra_hosts: !reset []
+    depends_on: !override
+      core: { condition: service_started }
+      media: { condition: service_started }
+      web: { condition: service_started }
+      recommendation-analytics: { condition: service_started }

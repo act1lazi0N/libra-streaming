@@ -1,7 +1,8 @@
 FROM node:24.20.0-alpine3.24 AS dependencies
 WORKDIR /app
 RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
+# pnpm-workspace.yaml carries allowBuilds; without it pnpm 11 fails the install on ignored build scripts.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 FROM node:24.20.0-alpine3.24 AS build

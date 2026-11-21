@@ -11,27 +11,36 @@
 # ingress on a loopback port fixed before startup so Core's public URL and Media's storage CORS origin name the page's
 # exact origin, a static stand-in for the web upstream serving web/e2e/m33/harness with the pinned hls.js, and
 # web/e2e/m33-vertical-slice.spec.ts run by Playwright in the installed Google Chrome.
+# -Milestone RA03 (check-web-ra03.ps1 passes it) is a browser mode too, but against the REAL product: the `web` service
+# built from web/Dockerfile and recommendation-analytics from its own JAR, behind the same ingress on a fixed loopback
+# port. infra/smoke/web_ra03_seed.py prepares content and viewers; web/e2e/ra03/*.spec.ts drive the product UI in the
+# installed Google Chrome. Node sees only LIBRA_RA03_* addresses and the seed file's path; every key stays here.
 # -Milestone 34 skips phase 1 and runs media_m34_faults.py (check-media-m34.ps1 passes it): the fault matrix stops,
 # kills, pauses and restarts this project's own services while it drives the slice through the ingress.
 # -Milestone 36 skips phase 1 and runs media_m36_restart.py (check-media-m36.ps1 passes it): the retained-state
 # restart of the whole packaged stack takes Compose down without volumes, then up again with the same keys.
-param([string]$Python = 'python', [ValidateSet('29', '30', '33', '34', '36')][string]$Milestone = '29')
+param([string]$Python = 'python', [ValidateSet('29', '30', '33', '34', '36', 'RA03')][string]$Milestone = '29')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'assert-compose-removed.ps1')
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$project = "libra-m$Milestone-" + [guid]::NewGuid().ToString('N').Substring(0, 12)
+$tag = $Milestone.ToLowerInvariant()
+$project = $(if ($tag -eq 'ra03') { 'libra-ra03-' } else { "libra-m$tag-" }) + [guid]::NewGuid().ToString('N').Substring(0, 12)
 $verification = Join-Path $repository 'target/verification'
 $emptyEnv = Join-Path $verification 'm29-empty.env'
 $compose = @('compose', '--project-name', $project, '--profile', 'full', '--env-file', $emptyEnv,
     '--file', (Join-Path $repository 'infra/compose.yaml'), '--file', (Join-Path $PSScriptRoot 'compose.media-m29.yaml'))
-$browser = $Milestone -eq '33'
-if ($browser) { $compose += @('--file', (Join-Path $PSScriptRoot 'compose.browser-m33.yaml')) }
+$ra03 = $Milestone -eq 'RA03'
+$browser = $Milestone -in @('33', 'RA03')
+if ($Milestone -eq '33') { $compose += @('--file', (Join-Path $PSScriptRoot 'compose.browser-m33.yaml')) }
+if ($ra03) { $compose += @('--file', (Join-Path $PSScriptRoot 'compose.web-ra03.yaml')) }
+$ra03Work = Join-Path $verification 'ra03'
 $harness = Join-Path $verification 'm33-harness'
 $ingressCompose = @('compose', '--project-name', ($project + '-ingress'), '--env-file', $emptyEnv,
     '--file', (Join-Path $PSScriptRoot 'compose.ingress-m29.yaml'))
 $evidence = @((Join-Path $verification 'ingress-m29.json'), (Join-Path $verification "media-m$Milestone.json"))
 if ($Milestone -eq '30') { $evidence += Join-Path $verification 'ingress-m30.json' }
 if ($browser) { $evidence = @(Join-Path $verification 'media-m33.json') }
+if ($ra03) { $evidence = @(Join-Path $verification 'web-ra03.json') }
 $faults = $Milestone -eq '34'
 if ($faults) { $evidence = @(Join-Path $verification 'media-m34.json') }
 $restart = $Milestone -eq '36'
@@ -41,9 +50,10 @@ if ($restart) { $evidence = @(Join-Path $verification 'media-m36.json') }
 $names = @('LIBRA_M29_ADMIN_PASSWORD', 'LIBRA_M29_ENV_FILE', 'LIBRA_M33_BASE_URL', 'LIBRA_M33_MAIL_URL',
     'LIBRA_M33_STORAGE_ORIGIN', 'LIBRA_M33_EVIDENCE', 'LIBRA_M33_WORK', 'LIBRA_M33_ADMIN_EMAIL',
     'LIBRA_M33_ADMIN_PASSWORD', 'LIBRA_M33_RUN_ID', 'DEBUG', 'DEBUG_FILE', 'PWDEBUG', 'PW_TEST_HTML_REPORT_OPEN',
-    'PLAYWRIGHT_BROWSERS_PATH') + @(
+    'PLAYWRIGHT_BROWSERS_PATH', 'LIBRA_RA03_BASE_URL', 'LIBRA_RA03_MAIL_URL', 'LIBRA_RA03_SEED', 'LIBRA_RA03_EVIDENCE',
+    'LIBRA_RA03_RUN_ID', 'LIBRA_RA03_INGRESS_PORT', 'LIBRA_RA03_SEED_ADMIN_EMAIL', 'LIBRA_RA03_SEED_ADMIN_PASSWORD') + @(
     Get-Content -Raw (Join-Path $repository 'infra/compose.yaml'), (Join-Path $PSScriptRoot 'compose.media-m29.yaml'),
-        (Join-Path $PSScriptRoot 'compose.browser-m33.yaml') |
+        (Join-Path $PSScriptRoot 'compose.browser-m33.yaml'), (Join-Path $PSScriptRoot 'compose.web-ra03.yaml') |
         Select-String -AllMatches '\$\{([A-Z0-9_]+)' | ForEach-Object { $_.Matches } |
         ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
 $previous = @{}
@@ -76,14 +86,25 @@ try {
     Set-Content -LiteralPath $emptyEnv -Value '' -NoNewline
     foreach ($name in $names) { Set-Smoke $name $null }
     Set-Smoke 'LIBRA_M29_ENV_FILE' $emptyEnv
-    foreach ($jar in 'services/core/target/core-service-0.1.0-SNAPSHOT.jar',
-                     'services/media/target/media-service-0.1.0-SNAPSHOT.jar') {
+    $jars = @('services/core/target/core-service-0.1.0-SNAPSHOT.jar', 'services/media/target/media-service-0.1.0-SNAPSHOT.jar')
+    if ($ra03) { $jars += 'services/recommendation-analytics/target/recommendation-analytics-service-0.1.0-SNAPSHOT.jar' }
+    foreach ($jar in $jars) {
         if (-not (Test-Path -LiteralPath $jar)) { throw 'Run root Maven clean verify before the M29 smoke.' }
     }
     & docker info --format '{{.ServerVersion}}' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Docker is required; the M29 smoke cannot be skipped.' }
 
-    if ($browser) {
+    if ($ra03) {
+        # The product UI runs in the web image; the host needs the browser driver and ffmpeg for the seed clips only.
+        if (-not (Test-Path -LiteralPath (Join-Path $repository 'web/node_modules/@playwright/test/package.json'))) {
+            throw 'Run pnpm install in web/ before the RA03 browser acceptance.'
+        }
+        if (-not ((Get-Command ffmpeg -ErrorAction SilentlyContinue) -or $env:LIBRA_FFMPEG_PATH)) {
+            throw 'ffmpeg must be on PATH (or LIBRA_FFMPEG_PATH set) for the RA03 clips.'
+        }
+        if (Test-Path -LiteralPath $ra03Work) { Remove-Item -LiteralPath $ra03Work -Recurse -Force }
+        New-Item -ItemType Directory -Force $ra03Work | Out-Null
+    } elseif ($browser) {
         # The harness, the pinned player build and the installed Chrome must all be present; none may be skipped.
         $player = Get-Content -Raw (Join-Path $repository 'web/node_modules/hls.js/package.json') -ErrorAction SilentlyContinue |
             ConvertFrom-Json -ErrorAction SilentlyContinue
@@ -154,7 +175,7 @@ try {
     if ($browser) {
         # The page's origin: Core's links and Media's storage CORS rule name it exactly.
         $ingressPort = Free-Port
-        Set-Smoke 'LIBRA_M33_INGRESS_PORT' "$ingressPort"
+        Set-Smoke $(if ($ra03) { 'LIBRA_RA03_INGRESS_PORT' } else { 'LIBRA_M33_INGRESS_PORT' }) "$ingressPort"
         Set-Smoke 'CORE_PUBLIC_BASE_URL' "http://127.0.0.1:$ingressPort"
         Set-Smoke 'MEDIA_BROWSER_ORIGIN' "http://127.0.0.1:$ingressPort"
     }
@@ -176,15 +197,56 @@ try {
     Set-Smoke 'MEDIA_CORE_BINDING_PRIVATE_KEY' $binding[0]
     Set-Smoke 'MEDIA_CORE_BINDING_PUBLIC_KEY' $binding[1]
     Set-Smoke 'MEDIA_CORE_BINDING_KEY_ID' 'm29-media-binding'
+    if ($ra03) {
+        # Core's own key for Core->Analytics statistics; Analytics receives only the public half. Analytics bootstrap
+        # (Analytics->Core) stays disabled in this slice.
+        $analytics = Pair
+        Set-Smoke 'CORE_ANALYTICS_ENABLED' 'true'
+        Set-Smoke 'CORE_ANALYTICS_PRIVATE_KEY' $analytics[0]
+        Set-Smoke 'CORE_ANALYTICS_PUBLIC_KEY' $analytics[1]
+        Set-Smoke 'CORE_ANALYTICS_KEY_ID' 'ra03-core-analytics'
+    }
     Invoke-Compose config --quiet
     $started = $true
     $services = @('postgres', 'kafka', 'mailpit', 'seaweedfs', 's3-gateway', 'core', 'media', 'nginx')
-    if ($browser) { $services += 'web' }
+    if ($Milestone -eq '33') { $services += 'web' }
+    if ($ra03) { $services += @('web', 'recommendation-analytics') }
     Invoke-Compose up -d --build --wait --wait-timeout 240 @services
     Invoke-Compose exec -T nginx nginx -t
     $ingress = (Invoke-Compose port nginx 80 | Select-Object -Last 1).Trim()
     $mail = (Invoke-Compose port mailpit 8025 | Select-Object -Last 1).Trim()
-    if ($browser) {
+    if ($ra03) {
+        & $Python infra/smoke/web_ra03_ready.py --base-url "http://$ingress"
+        if ($LASTEXITCODE -ne 0) { throw 'RA03 services did not become ready through the ingress.' }
+        Set-Smoke 'LIBRA_RA03_SEED_ADMIN_EMAIL' $env:CORE_BOOTSTRAP_ADMIN_EMAIL
+        Set-Smoke 'LIBRA_RA03_SEED_ADMIN_PASSWORD' $env:LIBRA_M29_ADMIN_PASSWORD
+        $seedFile = Join-Path $ra03Work 'seed.json'
+        & $Python infra/smoke/web_ra03_seed.py --base-url "http://$ingress" --mail-url "http://$mail" --out $seedFile
+        if ($LASTEXITCODE -ne 0) { throw 'RA03 seed failed.' }
+        Set-Smoke 'LIBRA_RA03_BASE_URL' "http://$ingress"
+        Set-Smoke 'LIBRA_RA03_MAIL_URL' "http://$mail"
+        Set-Smoke 'LIBRA_RA03_SEED' $seedFile
+        Set-Smoke 'LIBRA_RA03_EVIDENCE' $evidence[0]
+        if ($env:LIBRA_VERIFY_RUN_ID) { Set-Smoke 'LIBRA_RA03_RUN_ID' $env:LIBRA_VERIFY_RUN_ID }
+        # Node and Chrome get the page's address, the mail address, the seed file's path and the evidence path. The
+        # administrator password lives in the seed file the specs need; every other variable, the generated private
+        # keys among them, is withheld for the run and restored for Compose's own cleanup.
+        $visible = @('LIBRA_RA03_BASE_URL', 'LIBRA_RA03_MAIL_URL', 'LIBRA_RA03_SEED', 'LIBRA_RA03_EVIDENCE', 'LIBRA_RA03_RUN_ID')
+        $withheld = @{}
+        foreach ($name in $names) {
+            if ($name -notin $visible) {
+                $withheld[$name] = [Environment]::GetEnvironmentVariable($name)
+                Set-Smoke $name $null
+            }
+        }
+        $pnpm = if ($IsWindows) { 'pnpm.cmd' } else { 'pnpm' }
+        Push-Location (Join-Path $repository 'web')
+        try { & $pnpm exec playwright test e2e/ra03 } finally {
+            Pop-Location
+            foreach ($name in $withheld.Keys) { Set-Smoke $name $withheld[$name] }
+        }
+        if ($LASTEXITCODE -ne 0) { throw 'RA03 browser acceptance failed.' }
+    } elseif ($browser) {
         & $Python infra/smoke/media_m33_ready.py --base-url "http://$ingress"
         if ($LASTEXITCODE -ne 0) { throw 'M33 services did not become ready through the ingress.' }
         Set-Smoke 'LIBRA_M33_BASE_URL' "http://$ingress"
@@ -206,7 +268,7 @@ try {
         }
         $pnpm = if ($IsWindows) { 'pnpm.cmd' } else { 'pnpm' }
         Push-Location (Join-Path $repository 'web')
-        try { & $pnpm exec playwright test } finally {
+        try { & $pnpm exec playwright test e2e/m33-vertical-slice.spec.ts } finally {
             Pop-Location
             foreach ($name in $withheld.Keys) { Set-Smoke $name $withheld[$name] }
         }
@@ -222,8 +284,8 @@ try {
     if ($started) {
         # Local, git-ignored diagnostics. Spring can echo a rejected property value, so treat this file as secret
         # material for the (already discarded) keys of this run.
-        & docker @compose logs --no-color core media 2>&1 |
-            Out-File -Encoding utf8 (Join-Path $repository "tmp/m$Milestone-smoke-services.log")
+        & docker @compose logs --no-color core media $(if ($ra03) { 'recommendation-analytics' }) 2>&1 |
+            Out-File -Encoding utf8 (Join-Path $repository "tmp/$tag-smoke-services.log")
     }
     throw
 } finally {
@@ -242,6 +304,11 @@ try {
     if (Test-Path -LiteralPath $harness) {
         Remove-Item -LiteralPath $harness -Recurse -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $harness) { $cleanupMessages += 'Browser harness cleanup failed.' }
+    }
+    # The seed file holds the generated administrator and viewer passwords.
+    if (Test-Path -LiteralPath $ra03Work) {
+        Remove-Item -LiteralPath $ra03Work -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $ra03Work) { $cleanupMessages += 'RA03 seed cleanup failed.' }
     }
     if ($cleanupMessages.Count) {
         Remove-Evidence

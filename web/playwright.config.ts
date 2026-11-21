@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-// Browser acceptance runs only through infra/smoke/check-media-m29.ps1 -Milestone 33, which starts the disposable
-// stack and passes its addresses. No trace, video, screenshot or HAR is recorded: they would hold signed URLs and
+// Browser acceptance runs only through infra/smoke/check-media-m29.ps1 -Milestone 33 (e2e/m33-vertical-slice.spec.ts)
+// or -Milestone RA03 (e2e/ra03), which start the disposable stack and pass its addresses; each names its spec path. No trace, video, screenshot or HAR is recorded: they would hold signed URLs and
 // cookies.
 export default defineConfig({
   testDir: "./e2e",

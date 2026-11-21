@@ -136,6 +136,25 @@ class IdentitySecurityIntegrationTest {
     }
 
     @Test
+    void csrfTokenStaysValidAcrossAuthenticatedRequestsUntilAuthenticationCookiesChange() throws Exception {
+        // RA03 C1: a browser caches one token between auth-cookie changes (docs/core-identity.md). Authenticated
+        // requests must neither delete nor replace the CSRF cookie, or every cached token goes stale.
+        var user = registered();
+        var browser = new Browser();
+        assertThat(browser.login(user).statusCode()).isEqualTo(200);
+        String token = browser.csrf();
+        String cookie = browser.cookies.get("LIBRA_CSRF");
+        assertThat(browser.get("/me").statusCode()).isEqualTo(200);
+        assertThat(browser.cookies.get("LIBRA_CSRF")).isEqualTo(cookie);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var revoke = browser.send("DELETE", "/me/sessions/" + UUID.randomUUID(), null, token);
+            assertThat(revoke.statusCode()).as("authenticated unsafe request %d with the cached token", attempt).isEqualTo(404);
+            assertThat(revoke.headers().allValues("Set-Cookie")).noneMatch(header -> header.startsWith("LIBRA_CSRF="));
+        }
+        assertThat(browser.cookies.get("LIBRA_CSRF")).isEqualTo(cookie);
+    }
+
+    @Test
     void refreshRotatesAndReplayRevokesTheWholeSession() throws Exception {
         var browser = new Browser();
         browser.login(registered());

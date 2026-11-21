@@ -17,6 +17,7 @@ ACCEPTANCE_EVIDENCE = {
     "media-m30.json": "MEDIA_M30_SMOKE_PASS",
     "ingress-m30.json": "INGRESS_M30_PATHS_PASS",
     "media-m33.json": "MEDIA_M33_BROWSER_PASS",
+    "web-ra03.json": "WEB_RA03_BROWSER_PASS",
     "media-m34.json": "MEDIA_M34_FAULTS_PASS",
     "media-m36.json": "MEDIA_M36_RESTART_PASS",
 }

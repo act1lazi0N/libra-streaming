@@ -392,7 +392,8 @@ class SmokeEvidenceGateTest(unittest.TestCase):
         # Writers contain Cookie header templates in source, not emitted evidence.
         root = Path(__file__).resolve().parents[2]
         for name in ("infra/smoke/core_http.py", "infra/smoke/ingress_m29_limits.py", "infra/smoke/media_m29_http.py",
-                     "infra/smoke/media_m30_http.py", "infra/smoke/media_m34_faults.py", "web/e2e/m33-vertical-slice.spec.ts"):
+                     "infra/smoke/media_m30_http.py", "infra/smoke/media_m34_faults.py", "web/e2e/m33-vertical-slice.spec.ts",
+                     "infra/smoke/web_ra03_seed.py", "web/e2e/ra03/support.ts"):
             with self.subTest(file=name):
                 findings = secret_findings((root / name).read_text(encoding="utf-8"))
                 self.assertEqual([rule for rule in findings if rule in ("SigV4", "long hex")], [])

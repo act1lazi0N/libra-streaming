@@ -257,3 +257,18 @@ series: genre matches first, then titles watched by the most accounts in 7 days,
 the newest. Completed titles are left out. A profile without history gets the
 popular-then-new list, and the answer is 503 until the catalog, profile and playback
 checkpoints are all confirmed.
+
+RA03.1–RA03.5 build the viewer web app in `web/`. See
+[Core client, session and profiles](docs/web-session-ra03-1.md),
+[catalog and title detail](docs/web-catalog-ra03-2.md),
+[protected HLS player](docs/web-player-ra03-3.md),
+[resume and next episode](docs/web-resume-ra03-4.md) and
+[browser hardening](docs/web-hardening-ra03-5.md). The browser talks only to Core through
+the ingress: HttpOnly cookies, one cached CSRF token, one refresh at a time across tabs,
+and a profile chosen per tab whose responses are never shown for another profile. The
+player admits once per action, plays Media's protected HLS with hls.js, renews the ticket
+by the server's clock, and reports progress so that only time really spent playing is
+credited. Resume, continue watching and the next episode come from Core. `pnpm test` in
+`web/` runs the unit tests; `infra/smoke/check-web-ra03.ps1` runs the browser suite on the
+real stack.
+

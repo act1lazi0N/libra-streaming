@@ -1,0 +1,5 @@
+**
+!services/
+!services/recommendation-analytics/
+!services/recommendation-analytics/target/
+!services/recommendation-analytics/target/recommendation-analytics-service-0.1.0-SNAPSHOT.jar

@@ -6,6 +6,7 @@ import java.time.Clock;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
 import org.springframework.http.HttpStatus;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,7 +21,10 @@ public class SecurityConfiguration {
         return http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())
                 .logout(logout -> logout.disable())
-                .csrf(csrf -> csrf.csrfTokenRepository(cookies.csrfRepository()))
+                // STATELESS makes Spring run CsrfAuthenticationStrategy on every authenticated request, which deleted
+                // the CSRF cookie each time (RA03 C1). IdentityCookies rotates it at login, refresh and logout instead.
+                .csrf(csrf -> csrf.csrfTokenRepository(cookies.csrfRepository())
+                        .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
                 .addFilterBefore(new IdentityAuthenticationFilter(decoder, accounts, cookies, problems, clock),
                         AnonymousAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize
