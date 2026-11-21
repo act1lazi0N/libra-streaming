@@ -3,8 +3,13 @@ package com.libra.streaming.recommendation.internalapi.api;
 import com.libra.streaming.recommendation.freshness.application.CheckpointStore;
 import com.libra.streaming.recommendation.freshness.application.ProjectionFreshness;
 import com.libra.streaming.recommendation.freshness.domain.InputTopic;
+import com.libra.streaming.recommendation.statistics.application.PlatformStatistics;
+import com.libra.streaming.recommendation.recommendations.application.ProfileRecommendations;
+import com.libra.streaming.recommendation.statistics.application.StatisticsStore;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -18,6 +23,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.CannotCreateTransactionException;
 import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
@@ -38,7 +44,7 @@ class InternalApiErrorsTest {
                 "ANALYTICS_UNAVAILABLE:503:b", () -> new CannotCreateTransactionException(CANARY),
                 "INTERNAL_ERROR:500:c", () -> new IllegalStateException(CANARY)).entrySet()) {
             String[] expected = failure.getKey().split(":");
-            mvc(failure.getValue()).perform(post(STATISTICS).contentType("application/json").content("{\"canary\":true}"))
+            mvc(failure.getValue()).perform(post(STATISTICS).contentType("application/json").content(statisticsBody()))
                     .andExpect(status().is(Integer.parseInt(expected[1])))
                     .andExpect(content().contentType("application/problem+json"))
                     .andExpect(header().string("Cache-Control", "no-store"))
@@ -49,7 +55,8 @@ class InternalApiErrorsTest {
                     .andExpect(content().string(not(containsString("canary"))));
         }
         String correlation = UUID.randomUUID().toString();
-        mvc(() -> new IllegalStateException(CANARY)).perform(post(STATISTICS).header("X-Correlation-ID", correlation))
+        mvc(() -> new IllegalStateException(CANARY)).perform(post(STATISTICS).contentType("application/json").content(statisticsBody())
+                .header("X-Correlation-ID", correlation))
                 .andExpect(jsonPath("correlationId").value(correlation));
         assertThat(output.getAll()).contains("at " + InternalApiErrorsTest.class.getName())
                 .contains("correlationId=" + correlation);
@@ -62,12 +69,12 @@ class InternalApiErrorsTest {
     void correlationIsEchoedOnlyWhenItIsACanonicalUuid() throws Exception {
         String id = UUID.randomUUID().toString();
         var mvc = mvc(null);
-        mvc.perform(post(STATISTICS).header("X-Correlation-ID", id))
+        mvc.perform(post(STATISTICS).contentType("application/json").content(statisticsBody()).header("X-Correlation-ID", id))
                 .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("code").value("ANALYTICS_NOT_READY"))
                 .andExpect(jsonPath("detail").value("Analytics has not completed its first checkpoint."))
                 .andExpect(jsonPath("correlationId").value(id));
         for (String forged : new String[] {"<script>canary</script>", id.toUpperCase(), id + "\r\nX-Canary: 1", "canary"}) {
-            mvc.perform(post(STATISTICS).header("X-Correlation-ID", forged))
+            mvc.perform(post(STATISTICS).contentType("application/json").content(statisticsBody()).header("X-Correlation-ID", forged))
                     .andExpect(jsonPath("correlationId").value(matchesPattern("[0-9a-f-]{36}")))
                     .andExpect(jsonPath("correlationId").value(not(id)))
                     .andExpect(content().string(not(containsString("anary"))));
@@ -81,6 +88,11 @@ class InternalApiErrorsTest {
                 .andExpect(jsonPath("code").value("METHOD_NOT_ALLOWED"));
     }
 
+    private static String statisticsBody() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        return "{\"from\":\"" + today.minusDays(1) + "\",\"to\":\"" + today + "\"}";
+    }
+
     private static MockMvc mvc(Supplier<RuntimeException> failure) {
         CheckpointStore store = new CheckpointStore() {
             @Override public Map<InputTopic, Instant> confirmed() {
@@ -90,7 +102,10 @@ class InternalApiErrorsTest {
             @Override public boolean advance(InputTopic topic, Instant at) { throw new AssertionError("A query advanced a checkpoint"); }
         };
         var problems = new Problems(new ObjectMapper());
-        return MockMvcBuilders.standaloneSetup(new InternalQueryController(new ProjectionFreshness(store, Clock.systemUTC()), problems))
+        Clock clock = Clock.systemUTC();
+        var freshness = new ProjectionFreshness(store, clock);
+        return MockMvcBuilders.standaloneSetup(new InternalQueryController(
+                new PlatformStatistics(mock(StatisticsStore.class), freshness), mock(ProfileRecommendations.class), problems, clock))
                 .setControllerAdvice(new InternalApiErrors(problems)).build();
     }
 }

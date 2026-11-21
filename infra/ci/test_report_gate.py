@@ -9,7 +9,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from check_test_reports import REQUIRED_ANALYTICS_SUITES, REQUIRED_MEDIA_SUITES, collect, main
+import check_test_reports
+from check_test_reports import REQUIRED_ANALYTICS_SUITES, REQUIRED_CORE_SUITES, REQUIRED_MEDIA_SUITES, collect, main
 
 ANALYTICS = "recommendation-analytics"
 
@@ -21,6 +22,8 @@ class ReportGateTest(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
         self.add_suite("core", "example.BoundaryIntegrationTest")
+        for name in REQUIRED_CORE_SUITES:
+            self.add_suite("core", name)
         self.add_suite("core", "example.UnitTest", tests=2)
         self.add_suite("media", "example.MediaUnitTest", tests=3)
         for name in REQUIRED_MEDIA_SUITES:
@@ -66,10 +69,12 @@ class ReportGateTest(unittest.TestCase):
         self.assertEqual(collect(self.root)[0]["tests"], 1)
 
     def test_requires_core_failsafe_suite(self):
-        self.source("core", "example.BoundaryIntegrationTest").unlink()
-        self.report("core", "example.BoundaryIntegrationTest").unlink()
-        with self.assertRaisesRegex(ValueError, "No Core integration evidence"):
-            collect(self.root)
+        for name in ("example.BoundaryIntegrationTest", *REQUIRED_CORE_SUITES):
+            self.source("core", name).unlink()
+            self.report("core", name).unlink()
+        with mock.patch.object(check_test_reports, "REQUIRED_SUITES", {"core": ()}):
+            with self.assertRaisesRegex(ValueError, "No Core integration evidence"):
+                collect(self.root)
 
     def test_requires_media_failsafe_reports(self):
         for name in REQUIRED_MEDIA_SUITES:
@@ -139,6 +144,28 @@ class ReportGateTest(unittest.TestCase):
                         collect(self.root)
                     self.add_suite(ANALYTICS, name)
 
+    def test_requires_each_core_suite_source_report_and_pass(self):
+        for name in REQUIRED_CORE_SUITES:
+            with self.subTest(suite=name, case="source"):
+                self.source("core", name).unlink()
+                with self.assertRaisesRegex(ValueError, "Core suite source: " + re.escape(name)):
+                    collect(self.root)
+                self.add_suite("core", name)
+            with self.subTest(suite=name, case="report"):
+                self.report("core", name).unlink()
+                with self.assertRaisesRegex(ValueError, "Missing failsafe report: " + re.escape(name)):
+                    collect(self.root)
+                self.add_suite("core", name)
+            for counts, body in (('failures="1" errors="0" skipped="0"', "<testcase><failure/></testcase>"),
+                                 ('failures="0" errors="1" skipped="0"', "<testcase><error/></testcase>"),
+                                 ('failures="0" errors="0" skipped="1"', "<testcase><skipped/></testcase>")):
+                with self.subTest(suite=name, case=counts):
+                    self.report("core", name).write_text(
+                        f'<testsuite tests="1" {counts}>{body}</testsuite>', encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "Failed or skipped suite: " + re.escape(name)):
+                        collect(self.root)
+                    self.add_suite("core", name)
+
     def test_requires_surefire_report(self):
         self.report("core", "example.UnitTest").unlink()
         with self.assertRaisesRegex(ValueError, "Missing surefire"):
@@ -150,14 +177,14 @@ class ReportGateTest(unittest.TestCase):
             main(["--root", str(self.root)])
         summary = json.loads((self.root / "target/verification/tests.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["suites"], rows)
-        self.assertEqual(summary["tests"], 16)
+        self.assertEqual(summary["tests"], 33)
         self.assertEqual(summary["result"], "TESTS_PASS")
         self.assertNotIn("runId", summary)
         self.assertNotIn("startedAt", summary)
         self.assertEqual(summary["modules"], {
-            "core": {"failsafe": {"suites": 1, "tests": 1}, "surefire": {"suites": 1, "tests": 2}},
+            "core": {"failsafe": {"suites": 5, "tests": 5}, "surefire": {"suites": 1, "tests": 2}},
             "media": {"failsafe": {"suites": 4, "tests": 4}, "surefire": {"suites": 1, "tests": 3}},
-            ANALYTICS: {"failsafe": {"suites": 4, "tests": 4}, "surefire": {"suites": 1, "tests": 2}},
+            ANALYTICS: {"failsafe": {"suites": 17, "tests": 17}, "surefire": {"suites": 1, "tests": 2}},
         })
 
     def test_failure_removes_previous_summary(self):
@@ -205,10 +232,10 @@ class ReportGateTest(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             main(["--root", str(self.root)])
         summary = json.loads((self.root / "target/verification/tests.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(summary["suites"]), 14)
-        self.assertEqual(summary["tests"], 18)
+        self.assertEqual(len(summary["suites"]), 31)
+        self.assertEqual(summary["tests"], 35)
         self.assertEqual(summary["modules"]["core"], {
-            "surefire": {"suites": 2, "tests": 3}, "failsafe": {"suites": 2, "tests": 2}})
+            "surefire": {"suites": 2, "tests": 3}, "failsafe": {"suites": 6, "tests": 6}})
         self.assertEqual({r["lane"] for r in summary["suites"] if r["suite"] == "example.Dynamic"},
                          {"surefire", "failsafe"})
 

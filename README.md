@@ -245,3 +245,15 @@ playback checkpoint is confirmed. A background scheduler confirms checkpoints fr
 the consumer groups' committed offsets, never from request or event time, so a quiet
 topic stays fresh and a stalled consumer or broker ages `updatedAt` instead of
 returning zeros.
+
+RA05.1–RA05.2 add rule-based recommendations to Analytics. See
+[genre preferences](docs/analytics-preferences-ra05-1.md) and
+[candidate ranking](docs/analytics-ranking-ra05-2.md). Each linked playback fact adds
+its accepted watched time to a per-profile rollup in its intake transaction, and a
+profile tombstone erases it. Interests cover the last 30 UTC days, cap every item at
+one full watch and every title at 6 h, and split a title equally over its genres.
+`POST /internal/v1/recommendations/query` now ranks published, playable movies and
+series: genre matches first, then titles watched by the most accounts in 7 days, then
+the newest. Completed titles are left out. A profile without history gets the
+popular-then-new list, and the answer is 503 until the catalog, profile and playback
+checkpoints are all confirmed.

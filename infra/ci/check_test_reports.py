@@ -9,6 +9,12 @@ import xml.etree.ElementTree as ET
 
 # Real-dependency Media suites: real ffprobe, real FFmpeg, real sockets, Testcontainers PostgreSQL/Kafka/storage.
 # Fully qualified; the gate fails if any is missing or not passing.
+REQUIRED_CORE_SUITES = (
+    "com.libra.streaming.core.integration.analytics.AnalyticsBootstrapIntegrationTest",
+    "com.libra.streaming.core.integration.security.InternalServiceSecurityIntegrationTest",
+    "com.libra.streaming.core.integration.analytics.AnalyticsEventContractIntegrationTest",
+    "com.libra.streaming.core.integration.analytics.AnalyticsReadIntegrationTest",
+)
 REQUIRED_MEDIA_SUITES = (
     "com.libra.streaming.media.processing.infrastructure.FfprobeFixtureIntegrationTest",
     "com.libra.streaming.media.processing.infrastructure.FfmpegTranscodeIntegrationTest",
@@ -18,12 +24,25 @@ REQUIRED_MEDIA_SUITES = (
 # Analytics suites that need a real PostgreSQL (Testcontainers): migration and transactions, the service-JWT chain,
 # the refusal matrix, and startup/outage behavior. An in-memory database cannot stand in for any of them.
 REQUIRED_ANALYTICS_SUITES = (
+    "com.libra.streaming.recommendation.convergence.OrderIndependenceIntegrationTest",
+    "com.libra.streaming.recommendation.convergence.FaultInjectionIntegrationTest",
+    "com.libra.streaming.recommendation.bootstrap.infrastructure.BootstrapIntegrationTest",
+    "com.libra.streaming.recommendation.ingestion.infrastructure.IngestionIntegrationTest",
+    "com.libra.streaming.recommendation.ingestion.infrastructure.KafkaIngestionIntegrationTest",
     "com.libra.streaming.recommendation.freshness.infrastructure.AnalyticsPersistenceIntegrationTest",
     "com.libra.streaming.recommendation.internalapi.infrastructure.CoreServiceSecurityIntegrationTest",
     "com.libra.streaming.recommendation.internalapi.infrastructure.CoreServiceRejectionIntegrationTest",
     "com.libra.streaming.recommendation.AnalyticsStartupIntegrationTest",
+    "com.libra.streaming.recommendation.profiles.infrastructure.ProfileErasureRaceIntegrationTest",
+    "com.libra.streaming.recommendation.statistics.infrastructure.StatisticsRollupIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.StatisticsApiIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.StatisticsHttpCompatibilityIntegrationTest",
+    "com.libra.streaming.recommendation.freshness.infrastructure.CheckpointFreshnessIntegrationTest",
+    "com.libra.streaming.recommendation.preferences.infrastructure.PreferenceRollupIntegrationTest",
+    "com.libra.streaming.recommendation.recommendations.infrastructure.CandidateRankingIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.RecommendationsApiIntegrationTest",
 )
-REQUIRED_SUITES = {"media": REQUIRED_MEDIA_SUITES, "recommendation-analytics": REQUIRED_ANALYTICS_SUITES}
+REQUIRED_SUITES = {"core": REQUIRED_CORE_SUITES, "media": REQUIRED_MEDIA_SUITES, "recommendation-analytics": REQUIRED_ANALYTICS_SUITES}
 # Every backend module must bring integration evidence; a module that is absent or has none fails the gate.
 REQUIRED_MODULES = ("core", "media", "recommendation-analytics")
 LABELS = {"core": "Core", "media": "Media", "recommendation-analytics": "Analytics"}
