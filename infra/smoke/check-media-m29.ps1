@@ -108,7 +108,10 @@ try {
         # The harness, the pinned player build and the installed Chrome must all be present; none may be skipped.
         $player = Get-Content -Raw (Join-Path $repository 'web/node_modules/hls.js/package.json') -ErrorAction SilentlyContinue |
             ConvertFrom-Json -ErrorAction SilentlyContinue
-        $pinned = (Get-Content -Raw (Join-Path $repository 'web/package.json') | ConvertFrom-Json).devDependencies.'hls.js'
+        # RA03 made hls.js a runtime dependency of the web app; the pin is read from either section.
+        $manifest = Get-Content -Raw (Join-Path $repository 'web/package.json') | ConvertFrom-Json
+        $pinned = $manifest.dependencies.'hls.js'
+        if (-not $pinned) { $pinned = $manifest.devDependencies.'hls.js' }
         if ($null -eq $player -or $player.version -ne $pinned) { throw 'Run pnpm install in web/ before the M33 smoke.' }
         if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { throw 'ffmpeg must be on PATH for the M33 clip.' }
         if (Test-Path -LiteralPath $harness) { Remove-Item -LiteralPath $harness -Recurse -Force }
