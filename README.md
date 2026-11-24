@@ -272,3 +272,21 @@ by the server's clock, and reports progress so that only time really spent playi
 credited. Resume, continue watching and the next episode come from Core. `pnpm test` in
 `web/` runs the unit tests; `infra/smoke/check-web-ra03.ps1` runs the browser suite on the
 real stack.
+
+RA04.3–RA04.4 add the administrator statistics dashboard. See
+[statistics report and dashboard](docs/analytics-statistics-report-ra04-3.md) and
+[statistics hardening](docs/analytics-statistics-hardening-ra04-4.md). A new internal contract
+(`contracts/http/analytics-internal.v2.json`) returns, from one database snapshot, the V1 totals, one entry per UTC
+day and the most watched titles; Core serves it to live administrators as `GET /v1/admin/statistics/report`, rejects
+any report whose parts do not add up, and names the titles from its own catalog. `/admin/statistics` in `web/` shows
+the totals, a daily chart, the ranking and the stale, unavailable and empty states. A reference dataset checks the
+30-second threshold, sessions across UTC midnight, late events, several profiles per account and unique viewers over
+the range.
+
+RA05.3–RA05.4 bring recommendations to Core and the web as four lists. See
+[recommendation lists](docs/analytics-recommendation-lists-ra05-3.md) and
+[recommendation hardening](docs/analytics-recommendation-hardening-ra05-4.md). Each item carries the rule that
+selected it (genre interest, similar genres, popular or newly published) and the algorithm version `rules-v1`; Core
+keeps only titles it can still show, falls back honestly (its own newest titles, or nothing for popular and similar)
+and never grants playback from a recommendation. The home page shows personal, popular and new rows; title pages show
+similar titles. `infra/smoke/check-web-ra05.ps1` runs the RA03, RA04 and RA05 browser suites in one disposable stack.
