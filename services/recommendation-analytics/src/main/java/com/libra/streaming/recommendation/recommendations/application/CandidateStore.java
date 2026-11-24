@@ -4,6 +4,7 @@ import com.libra.streaming.recommendation.recommendations.domain.TitleCandidate;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -24,4 +25,10 @@ public interface CandidateStore {
      * a series when every playable episode is. Empty for another account.
      */
     Set<UUID> completed(UUID accountId, UUID profileId);
+
+    /**
+     * The genres of the published revision of a movie or series, whether or not it is playable now; empty when the
+     * catalog projection does not know it as a published movie or series (RA05.3, seed of a SIMILAR list).
+     */
+    Optional<List<String>> genresOf(UUID titleId);
 }

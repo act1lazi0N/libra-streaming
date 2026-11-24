@@ -21,11 +21,33 @@ public class AnalyticsReadController {
             @RequestAttribute(CorrelationIdFilter.ATTRIBUTE) UUID correlationId) {
         return service.recommendations(actor, profileId, limit, correlationId);
     }
+    @GetMapping("/profiles/{profileId}/recommendations/lists/{list}")
+    RecommendationList recommendationList(@AuthenticationPrincipal IdentityPrincipal actor, @PathVariable UUID profileId,
+            @PathVariable String list, @RequestParam(required = false) UUID contentId,
+            @RequestParam(defaultValue = "12") @Min(1) @Max(20) int limit,
+            @RequestAttribute(CorrelationIdFilter.ATTRIBUTE) UUID correlationId) {
+        return service.recommendationList(actor, profileId, listKind(list), contentId, limit, correlationId);
+    }
+    /** Lower-case path names only: {@code personal}, {@code similar}, {@code popular}, {@code new}. */
+    private static ListKind listKind(String name) {
+        for (ListKind kind : ListKind.values()) {
+            if (kind.name().toLowerCase(java.util.Locale.ROOT).equals(name)) { return kind; }
+        }
+        throw com.libra.streaming.core.api.DomainException.invalid();
+    }
     @GetMapping("/admin/statistics")
     Statistics statistics(@AuthenticationPrincipal IdentityPrincipal actor,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestAttribute(CorrelationIdFilter.ATTRIBUTE) UUID correlationId) {
         return service.statistics(actor, from, to, correlationId);
+    }
+    @GetMapping("/admin/statistics/report")
+    StatisticsReport statisticsReport(@AuthenticationPrincipal IdentityPrincipal actor,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(50) int top,
+            @RequestAttribute(CorrelationIdFilter.ATTRIBUTE) UUID correlationId) {
+        return service.statisticsReport(actor, from, to, top, correlationId);
     }
 }

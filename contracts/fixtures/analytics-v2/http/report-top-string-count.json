@@ -1,0 +1,68 @@
+{
+  "from": "{{from}}",
+  "to": "{{to}}",
+  "updatedAt": "{{updatedAt}}",
+  "totals": {
+    "qualifiedViews": 5,
+    "uniqueViewers": 3,
+    "acceptedWatchedMs": 240000
+  },
+  "days": [
+    {
+      "day": "{{day1}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day2}}",
+      "qualifiedViews": 2,
+      "uniqueViewers": 2,
+      "acceptedWatchedMs": 90000
+    },
+    {
+      "day": "{{day3}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day4}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day5}}",
+      "qualifiedViews": 3,
+      "uniqueViewers": 2,
+      "acceptedWatchedMs": 150000
+    },
+    {
+      "day": "{{day6}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day7}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    }
+  ],
+  "topContent": [
+    {
+      "contentId": "{{movieId}}",
+      "qualifiedViews": "3",
+      "uniqueViewers": 2,
+      "acceptedWatchedMs": 150000
+    },
+    {
+      "contentId": "{{seriesId}}",
+      "qualifiedViews": 2,
+      "uniqueViewers": 2,
+      "acceptedWatchedMs": 90000
+    }
+  ]
+}

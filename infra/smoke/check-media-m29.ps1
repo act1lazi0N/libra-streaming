@@ -19,18 +19,23 @@
 # kills, pauses and restarts this project's own services while it drives the slice through the ingress.
 # -Milestone 36 skips phase 1 and runs media_m36_restart.py (check-media-m36.ps1 passes it): the retained-state
 # restart of the whole packaged stack takes Compose down without volumes, then up again with the same keys.
-param([string]$Python = 'python', [ValidateSet('29', '30', '33', '34', '36', 'RA03')][string]$Milestone = '29')
+param([string]$Python = 'python', [ValidateSet('29', '30', '33', '34', '36', 'RA03', 'RA04', 'RA05')][string]$Milestone = '29')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'assert-compose-removed.ps1')
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $tag = $Milestone.ToLowerInvariant()
-$project = $(if ($tag -eq 'ra03') { 'libra-ra03-' } else { "libra-m$tag-" }) + [guid]::NewGuid().ToString('N').Substring(0, 12)
+$project = $(if ($tag -like 'ra0*') { "libra-$tag-" } else { "libra-m$tag-" }) + [guid]::NewGuid().ToString('N').Substring(0, 12)
 $verification = Join-Path $repository 'target/verification'
 $emptyEnv = Join-Path $verification 'm29-empty.env'
 $compose = @('compose', '--project-name', $project, '--profile', 'full', '--env-file', $emptyEnv,
     '--file', (Join-Path $repository 'infra/compose.yaml'), '--file', (Join-Path $PSScriptRoot 'compose.media-m29.yaml'))
-$ra03 = $Milestone -eq 'RA03'
-$browser = $Milestone -in @('33', 'RA03')
+# -Milestone RA04 (check-web-ra04.ps1) is the RA03 mode on the same stack, then the e2e/ra04 dashboard specs,
+# which read the qualified view the RA03 player produced. -Milestone RA05 (check-web-ra05.ps1) adds e2e/ra05, the
+# recommendation lists, after both.
+$ra05 = $Milestone -eq 'RA05'
+$ra04 = $Milestone -in @('RA04', 'RA05')
+$ra03 = $Milestone -in @('RA03', 'RA04', 'RA05')
+$browser = $Milestone -in @('33', 'RA03', 'RA04', 'RA05')
 if ($Milestone -eq '33') { $compose += @('--file', (Join-Path $PSScriptRoot 'compose.browser-m33.yaml')) }
 if ($ra03) { $compose += @('--file', (Join-Path $PSScriptRoot 'compose.web-ra03.yaml')) }
 $ra03Work = Join-Path $verification 'ra03'
@@ -41,6 +46,8 @@ $evidence = @((Join-Path $verification 'ingress-m29.json'), (Join-Path $verifica
 if ($Milestone -eq '30') { $evidence += Join-Path $verification 'ingress-m30.json' }
 if ($browser) { $evidence = @(Join-Path $verification 'media-m33.json') }
 if ($ra03) { $evidence = @(Join-Path $verification 'web-ra03.json') }
+if ($ra04) { $evidence += Join-Path $verification 'web-ra04.json' }
+if ($ra05) { $evidence += Join-Path $verification 'web-ra05.json' }
 $faults = $Milestone -eq '34'
 if ($faults) { $evidence = @(Join-Path $verification 'media-m34.json') }
 $restart = $Milestone -eq '36'
@@ -51,7 +58,8 @@ $names = @('LIBRA_M29_ADMIN_PASSWORD', 'LIBRA_M29_ENV_FILE', 'LIBRA_M33_BASE_URL
     'LIBRA_M33_STORAGE_ORIGIN', 'LIBRA_M33_EVIDENCE', 'LIBRA_M33_WORK', 'LIBRA_M33_ADMIN_EMAIL',
     'LIBRA_M33_ADMIN_PASSWORD', 'LIBRA_M33_RUN_ID', 'DEBUG', 'DEBUG_FILE', 'PWDEBUG', 'PW_TEST_HTML_REPORT_OPEN',
     'PLAYWRIGHT_BROWSERS_PATH', 'LIBRA_RA03_BASE_URL', 'LIBRA_RA03_MAIL_URL', 'LIBRA_RA03_SEED', 'LIBRA_RA03_EVIDENCE',
-    'LIBRA_RA03_RUN_ID', 'LIBRA_RA03_INGRESS_PORT', 'LIBRA_RA03_SEED_ADMIN_EMAIL', 'LIBRA_RA03_SEED_ADMIN_PASSWORD') + @(
+    'LIBRA_RA03_RUN_ID', 'LIBRA_RA03_INGRESS_PORT', 'LIBRA_RA03_SEED_ADMIN_EMAIL', 'LIBRA_RA03_SEED_ADMIN_PASSWORD',
+    'LIBRA_RA04_EVIDENCE', 'LIBRA_RA05_EVIDENCE') + @(
     Get-Content -Raw (Join-Path $repository 'infra/compose.yaml'), (Join-Path $PSScriptRoot 'compose.media-m29.yaml'),
         (Join-Path $PSScriptRoot 'compose.browser-m33.yaml'), (Join-Path $PSScriptRoot 'compose.web-ra03.yaml') |
         Select-String -AllMatches '\$\{([A-Z0-9_]+)' | ForEach-Object { $_.Matches } |
@@ -230,11 +238,14 @@ try {
         Set-Smoke 'LIBRA_RA03_MAIL_URL' "http://$mail"
         Set-Smoke 'LIBRA_RA03_SEED' $seedFile
         Set-Smoke 'LIBRA_RA03_EVIDENCE' $evidence[0]
+        if ($ra04) { Set-Smoke 'LIBRA_RA04_EVIDENCE' $evidence[1] }
+        if ($ra05) { Set-Smoke 'LIBRA_RA05_EVIDENCE' $evidence[2] }
         if ($env:LIBRA_VERIFY_RUN_ID) { Set-Smoke 'LIBRA_RA03_RUN_ID' $env:LIBRA_VERIFY_RUN_ID }
         # Node and Chrome get the page's address, the mail address, the seed file's path and the evidence path. The
         # administrator password lives in the seed file the specs need; every other variable, the generated private
         # keys among them, is withheld for the run and restored for Compose's own cleanup.
-        $visible = @('LIBRA_RA03_BASE_URL', 'LIBRA_RA03_MAIL_URL', 'LIBRA_RA03_SEED', 'LIBRA_RA03_EVIDENCE', 'LIBRA_RA03_RUN_ID')
+        $visible = @('LIBRA_RA03_BASE_URL', 'LIBRA_RA03_MAIL_URL', 'LIBRA_RA03_SEED', 'LIBRA_RA03_EVIDENCE', 'LIBRA_RA03_RUN_ID',
+            'LIBRA_RA04_EVIDENCE', 'LIBRA_RA05_EVIDENCE')
         $withheld = @{}
         foreach ($name in $names) {
             if ($name -notin $visible) {
@@ -244,11 +255,15 @@ try {
         }
         $pnpm = if ($IsWindows) { 'pnpm.cmd' } else { 'pnpm' }
         Push-Location (Join-Path $repository 'web')
-        try { & $pnpm exec playwright test e2e/ra03 } finally {
+        $specs = @('e2e/ra03') + $(if ($ra04) { @('e2e/ra04') } else { @() }) + $(if ($ra05) { @('e2e/ra05') } else { @() })
+        try { & $pnpm exec playwright test @specs } finally {
             Pop-Location
             foreach ($name in $withheld.Keys) { Set-Smoke $name $withheld[$name] }
         }
-        if ($LASTEXITCODE -ne 0) { throw 'RA03 browser acceptance failed.' }
+        if ($LASTEXITCODE -ne 0) { throw "$Milestone browser acceptance failed." }
+        foreach ($file in $evidence) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "$Milestone browser acceptance left no evidence: $file" }
+        }
     } elseif ($browser) {
         & $Python infra/smoke/media_m33_ready.py --base-url "http://$ingress"
         if ($LASTEXITCODE -ne 0) { throw 'M33 services did not become ready through the ingress.' }

@@ -1,0 +1,6 @@
+{
+  "accountId": "{{accountId}}",
+  "profileId": "{{profileId}}",
+  "list": "PERSONAL",
+  "limit": 100
+}

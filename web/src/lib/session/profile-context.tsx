@@ -97,7 +97,8 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 
   useEffect(() => {
-    if (status === "ready" && !selected && pathname !== "/profiles") {
+    // Administration pages act for the account, not a viewing profile (RA04.3): they never require one.
+    if (status === "ready" && !selected && pathname !== "/profiles" && !pathname.startsWith("/admin/")) {
       router.replace("/profiles");
     }
   }, [status, selected, pathname, router]);

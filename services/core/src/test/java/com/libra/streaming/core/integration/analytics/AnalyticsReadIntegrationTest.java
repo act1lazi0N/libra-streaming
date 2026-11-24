@@ -337,7 +337,7 @@ class AnalyticsReadIntegrationTest {
         var bytes = java.nio.ByteBuffer.allocate(16).putLong(movie.id().getMostSignificantBits())
                 .putLong(movie.id().getLeastSignificantBits()).array();
         values.put("movieIdBase64", Base64.getEncoder().encodeToString(bytes));
-        var fixtures = AnalyticsContractFixtures.load(mapper);
+        var fixtures = AnalyticsContractFixtures.load(mapper, "analytics-v1");
         var bodies = AnalyticsContractFixtures.with(fixtures, "coreOutcome");
         assertThat(bodies).hasSize(35); // append-only corpus: a lost downstream fixture must fail here
         var mismatches = new ArrayList<String>();

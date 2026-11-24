@@ -1,0 +1,7 @@
+{
+  "accountId": "{{accountId}}",
+  "profileId": "{{profileId}}",
+  "list": "SIMILAR",
+  "seedContentId": "not-a-uuid",
+  "limit": 100
+}

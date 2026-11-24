@@ -1,0 +1,134 @@
+package com.libra.streaming.recommendation.internalapi.api;
+
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class StatisticsReportRequestsTest {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 50})
+    void acceptsLimitBounds(int limit) throws Exception {
+        byte[] body = VALID.replace(":10", ":" + limit).getBytes(StandardCharsets.UTF_8);
+        assertThat(StatisticsReportRequests.read("application/json", body.length, new ByteArrayInputStream(body)))
+                .isEqualTo(new StatisticsReportRequests.Query(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 7), limit));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "51", "-1", "10.0", "1e1", "\"10\"", "true", "null",
+            "2147483648", "99999999999999999999"})
+    void rejectsNonIntegerOrOutOfRangeLimit(String token) {
+        byte[] body = VALID.replace(":10", ":" + token).getBytes(StandardCharsets.UTF_8);
+        rejects("application/json", body.length, new ByteArrayInputStream(body), Problems.Code.INVALID_REQUEST);
+    }
+
+    @Test
+    void rejectsEveryMissingDuplicateAndExtraField() {
+        for (String field : new String[] {"from", "to", "topLimit"}) {
+            String member = switch (field) {
+                case "from" -> "\"from\":\"2026-09-01\"";
+                case "to" -> "\"to\":\"2026-09-07\"";
+                default -> "\"topLimit\":10";
+            };
+            String missing = VALID.replace(member + ",", "").replace("," + member, "");
+            for (String invalid : new String[] {missing, VALID.replace("}", "," + member + "}"),
+                    VALID.replace("}", ",\"extra\":true}")}) {
+                byte[] body = invalid.getBytes(StandardCharsets.UTF_8);
+                rejects("application/json", body.length, new ByteArrayInputStream(body), Problems.Code.INVALID_REQUEST);
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"20260907", "[2026,9,7]", "null", "\"2026-09-07T00:00:00Z\"",
+            "\"2026-02-30\"", "\"+2026-09-07\"", "\" 2026-09-07\"", "\"2026-9-7\""})
+    void rejectsBadDatesInEitherField(String token) {
+        for (String date : new String[] {"\"2026-09-01\"", "\"2026-09-07\""}) {
+            byte[] body = VALID.replace(date, token).getBytes(StandardCharsets.UTF_8);
+            rejects("application/json", body.length, new ByteArrayInputStream(body), Problems.Code.INVALID_REQUEST);
+        }
+    }
+    private static final String VALID = "{\"from\":\"2026-09-01\",\"to\":\"2026-09-07\",\"topLimit\":10}";
+
+    @ParameterizedTest
+    @ValueSource(strings = {"application/json", "application/json; charset=utf-8", "Application/JSON;charset=UTF-8"})
+    void acceptsUtf8JsonMediaTypes(String mediaType) throws Exception {
+        byte[] body = VALID.getBytes(StandardCharsets.UTF_8);
+        assertThat(StatisticsReportRequests.read(mediaType, body.length, new ByteArrayInputStream(body)))
+                .isEqualTo(new StatisticsReportRequests.Query(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 7), 10));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"text/plain", "application/json-patch+json", "application/json; charset=iso-8859-1",
+            "application/json; charset=nope-unknown", "application/json; charset=@@", "not a media type"})
+    void rejectsUnsupportedOrMalformedMediaTypes(String mediaType) {
+        byte[] body = VALID.getBytes(StandardCharsets.UTF_8);
+        rejects(mediaType, body.length, new ByteArrayInputStream(body), Problems.Code.UNSUPPORTED_MEDIA_TYPE);
+    }
+
+    @Test
+    void oversizedDeclaredLengthIsRejectedBeforeReadingStream() {
+        InputStream unreadable = new InputStream() {
+            @Override
+            public int read() { throw new AssertionError("Oversized request stream was read"); }
+        };
+        rejects("application/json", 1025, unreadable, Problems.Code.PAYLOAD_TOO_LARGE);
+    }
+
+    @Test
+    void unknownLengthStillEnforcesBodyLimit() {
+        rejects("application/json", -1, new ByteArrayInputStream(new byte[1025]), Problems.Code.PAYLOAD_TOO_LARGE);
+    }
+
+    @Test
+    void exactly1024BytesOfValidJsonWithSpacePaddingAreAccepted() throws Exception {
+        byte[] body = (VALID + " ".repeat(1024 - VALID.length())).getBytes(StandardCharsets.UTF_8);
+        assertThat(body).hasSize(1024);
+        assertThat(StatisticsReportRequests.read("application/json", body.length, new ByteArrayInputStream(body)))
+                .isEqualTo(new StatisticsReportRequests.Query(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 7), 10));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "", "null", "[]", "\"x\"", "{}",
+            "{\"from\":\"2026-09-01\"}",
+            "{\"from\":\"2026-09-01\",\"to\":\"2026-09-07\",\"extra\":true}",
+            "{\"from\":\"2026-09-01\",\"from\":\"2026-09-02\",\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":20260907,\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":[2026,9,7],\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":\"2026-09-07T00:00:00Z\",\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":\"2026-02-30\",\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":\"+2026-09-07\",\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":\" 2026-09-07\",\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":\"2026-9-7\",\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":\"2026-09-01\",\"to\":\"2026-09-07\",\"topLimit\":10} {}",
+            "{\"from\":null,\"to\":\"2026-09-07\",\"topLimit\":10}",
+            "{\"from\":\"2026-09-01\",\"to\":null}"
+    })
+    void rejectsInvalidJsonShapeOrDates(String json) {
+        byte[] body = json.getBytes(StandardCharsets.UTF_8);
+        rejects("application/json", body.length, new ByteArrayInputStream(body), Problems.Code.INVALID_REQUEST);
+    }
+
+    @Test
+    void rejectsInvalidUtf8Bytes() {
+        byte[] body = VALID.getBytes(StandardCharsets.UTF_8);
+        body[VALID.indexOf("2026")] = (byte) 0xff;
+        rejects("application/json", body.length, new ByteArrayInputStream(body), Problems.Code.INVALID_REQUEST);
+    }
+
+    private static void rejects(String mediaType, long length, InputStream body, Problems.Code code) {
+        assertThatThrownBy(() -> StatisticsReportRequests.read(mediaType, length, body))
+                .isInstanceOfSatisfying(QueryBodies.Rejected.class, rejected -> {
+                    assertThat(rejected.code).isEqualTo(code);
+                    assertThat(rejected.getMessage()).isEqualTo(code.name());
+                });
+    }
+}

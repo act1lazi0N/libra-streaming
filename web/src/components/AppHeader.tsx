@@ -27,6 +27,11 @@ export function AppHeader() {
                     {selected.name}
                   </span>
                 ) : null}
+                {state.account.role === "ADMIN" ? (
+                  <Link href="/admin/statistics" data-testid="header-statistics" className="text-amber-400 hover:underline">
+                    Thống kê
+                  </Link>
+                ) : null}
                 <Link href="/profiles" data-testid="header-switch-profile" className="text-amber-400 hover:underline">
                   Đổi hồ sơ
                 </Link>

@@ -3,6 +3,7 @@ package com.libra.streaming.recommendation.recommendations.application;
 import com.libra.streaming.recommendation.freshness.application.ProjectionFreshness;
 import com.libra.streaming.recommendation.freshness.domain.Projection;
 import com.libra.streaming.recommendation.preferences.application.ProfilePreferences;
+import com.libra.streaming.recommendation.recommendations.domain.ListKind;
 import com.libra.streaming.recommendation.recommendations.domain.RankedTitle;
 import com.libra.streaming.recommendation.recommendations.domain.Ranking;
 import java.time.Clock;
@@ -26,6 +27,19 @@ public class ProfileRecommendations {
             Objects.requireNonNull(profileId, "profileId");
             Objects.requireNonNull(updatedAt, "updatedAt");
             titles = List.copyOf(titles);
+        }
+    }
+
+    /** One V2 list (RA05.3): the titles with the rule that placed each, at least as fresh as {@code updatedAt}. */
+    public record ListSnapshot(UUID profileId, ListKind list, Instant updatedAt, List<RankedTitle> titles) {
+        public ListSnapshot {
+            Objects.requireNonNull(profileId, "profileId");
+            Objects.requireNonNull(list, "list");
+            Objects.requireNonNull(updatedAt, "updatedAt");
+            titles = List.copyOf(titles);
+            for (RankedTitle title : titles) {
+                if (!list.rules().contains(title.rule())) { throw new IllegalStateException("Rule not of this list"); }
+            }
         }
     }
 
@@ -59,5 +73,35 @@ public class ProfileRecommendations {
         var viewers = candidates.viewersSince(Ranking.popularitySince(now));
         var ranked = Ranking.rank(candidates.titles(), interests, viewers, completed, limit);
         return Optional.of(new Snapshot(profileId, updatedAt.get(), ranked));
+    }
+
+    /**
+     * A V2 list (RA05.3). Same readiness, freshness and profile rules as {@link #forProfile}; every list leaves out the
+     * titles the profile completed. {@code seed} is required for SIMILAR and must be null otherwise.
+     */
+    public Optional<ListSnapshot> list(UUID accountId, UUID profileId, ListKind list, UUID seed, int limit) {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(profileId, "profileId");
+        Objects.requireNonNull(list, "list");
+        if (limit < 1 || limit > MAX_LIMIT) { throw new IllegalArgumentException("limit"); }
+        if ((list == ListKind.SIMILAR) != (seed != null)) { throw new IllegalArgumentException("seed"); }
+        Optional<Instant> updatedAt = freshness.updatedAt(Projection.RECOMMENDATIONS);
+        if (updatedAt.isEmpty()) { return Optional.empty(); }
+        // An unknown seed (or one without genres) gives an empty SIMILAR list: answer it before the heavier reads.
+        var seedGenres = list == ListKind.SIMILAR ? candidates.genresOf(seed) : Optional.<List<String>>empty();
+        if (list == ListKind.SIMILAR && seedGenres.map(List::isEmpty).orElse(true)) {
+            return Optional.of(new ListSnapshot(profileId, list, updatedAt.get(), List.of()));
+        }
+        Instant now = clock.instant();
+        var completed = candidates.completed(accountId, profileId);
+        var viewers = candidates.viewersSince(Ranking.popularitySince(now));
+        List<RankedTitle> ranked = switch (list) {
+            case PERSONAL -> Ranking.rank(candidates.titles(), preferences.interests(accountId, profileId), viewers,
+                    completed, limit);
+            case SIMILAR -> Ranking.similar(candidates.titles(), seed, seedGenres.get(), viewers, completed, limit);
+            case POPULAR -> Ranking.popular(candidates.titles(), viewers, completed, limit);
+            case NEW -> Ranking.newest(candidates.titles(), viewers, completed, limit);
+        };
+        return Optional.of(new ListSnapshot(profileId, list, updatedAt.get(), ranked));
     }
 }

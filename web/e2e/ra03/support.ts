@@ -79,14 +79,20 @@ export function premiumProfiles(key: "premium_viewer" | "premium_viewer_2" | "pr
 // log in more than 8 times in one run. Logins counted: loginThroughUi and apiSession (UI or API).
 //
 //   account            tests (logins each)                                   total
-//   premium_viewer     1 (1), 2 (1), 3 (2: API setup + UI), 5 (1)            5
+//   premium_viewer     1 (1), 2 (1), 3 (2: API setup + UI), 5 (1);           7
+//                      RA05 28 (2: UI + API)
 //   premium_viewer_2   6 (1), 9 (1), 10 (1), 11 (1), 12 (1)                  5
 //   premium_viewer_3   13 (1), 14 (2: UI + API history), 15 (1), 16 (1),     6
 //                      18 (1)
-//   free_viewer        5 (1), 17 (1)                                         2
+//   free_viewer        5 (1), 17 (1); RA04 22 (2: UI + API);                 6
+//                      RA05 25-27 and 29 (2: one UI and one API session shared)
 //   unverified_viewer  17 (1)                                                1
-//   admin              seed: 1 + 5 upload threads (seed side, not counted    7
-//                      here), test 8 (1, one session for the file)
+//   admin              seed: 1 + 5 upload threads (seed side, not counted    8
+//                      here), test 8 (1, one session for the file); RA04 19
+//                      (1: UI; tests 20-21 reuse that browser session)
+//
+// The RA04 and RA05 suites (check-web-ra04.ps1, check-web-ra05.ps1) run after this one in the same process and share
+// this counter, so the rows above include them.
 //
 // Registrations in the seed: 5 (limit 10 per address per 15 minutes).
 

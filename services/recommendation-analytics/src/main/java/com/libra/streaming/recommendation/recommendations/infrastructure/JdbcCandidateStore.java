@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -113,6 +114,14 @@ class JdbcCandidateStore implements CandidateStore {
                 HAVING bool_and(finished.content_id IS NOT NULL)
                 """, row -> { completed.add(row.getObject("title_id", UUID.class)); }, profileId, accountId);
         return Set.copyOf(completed);
+    }
+
+    @Override
+    public Optional<List<String>> genresOf(UUID titleId) {
+        return jdbc.query("""
+                SELECT genres FROM catalog_nodes
+                WHERE content_id = ? AND kind IN ('MOVIE', 'SERIES') AND published IS NOT NULL
+                """, (row, index) -> genres(row.getArray("genres")), titleId).stream().findFirst();
     }
 
     private static List<String> genres(Array array) throws SQLException {

@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LIBRA Core Analytics read adapters",
-    "version": "1.0.0",
-    "description": "Milestone 7. Core-only adapter; downstream Analytics implementation is separate. Cookie semantics follow core-identity.v1.json. All responses use no-store. Recommendations never grant playback rights. 500 ms downstream budget, no application retry; 15-minute freshness threshold. Full rules: docs/core-analytics-adapter.md."
+    "version": "1.2.0",
+    "description": "Milestone 7. Core-only adapter; downstream Analytics implementation is separate. Cookie semantics follow core-identity.v1.json. All responses use no-store. Recommendations never grant playback rights. 500 ms downstream budget, no application retry; 15-minute freshness threshold. Full rules: docs/core-analytics-adapter.md. 1.1.0 (RA04.3) adds GET /v1/admin/statistics/report, backed by analytics-internal.v2; /v1/admin/statistics is unchanged. The report applies the same ADMIN, window and freshness rules, rejects any Analytics report that breaks the V2 consumer invariants (INVALID_RESPONSE) and names top titles from Core's catalog. Rules: docs/analytics-statistics-report-ra04-3.md. 1.2.0 (RA05.3) adds GET /v1/profiles/{profileId}/recommendations/lists/{list}, backed by analytics-internal.v2: personal, similar (contentId = a visible movie or series), popular and new lists, each item with the reason Analytics' rule gave and the algorithm version. A fallback is honest: personal and new fall back to Core's newest titles labelled NEWLY_PUBLISHED; popular and similar fall back to an empty list. Rules: docs/analytics-recommendation-lists-ra05-3.md."
   },
   "servers": [
     {
@@ -105,6 +105,136 @@
           },
           "default": {
             "description": "400 invalid request, 401 unauthenticated, 403 not ADMIN, 404 profile not owned/missing. Core authorization failures never become fallback.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/statistics/report": {
+      "get": {
+        "operationId": "adminStatisticsReport",
+        "summary": "Live ADMIN, inclusive UTC range up to 31 days ending no later than today; daily totals and top titles",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "top",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot or explicit unavailable result (no numbers at all when UNAVAILABLE)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatisticsReport"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid request, 401 unauthenticated, 403 not ADMIN. Authorization failures never become an unavailable result.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/profiles/{profileId}/recommendations/lists/{list}": {
+      "get": {
+        "operationId": "profileRecommendationList",
+        "summary": "Owned profile, live account; one recommendation list with reasons",
+        "parameters": [
+          {
+            "name": "profileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "list",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "personal",
+                "similar",
+                "popular",
+                "new"
+              ]
+            }
+          },
+          {
+            "name": "contentId",
+            "in": "query",
+            "description": "Required for similar, rejected otherwise",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 12
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics list or honest fallback",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid request, 401 unauthenticated, 404 profile not owned or seed not a visible movie or series. Authorization failures never become a fallback.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -247,6 +377,300 @@
             ],
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "ReportCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "qualifiedViews",
+          "uniqueViewers",
+          "acceptedWatchedMs"
+        ],
+        "properties": {
+          "qualifiedViews": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uniqueViewers": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "acceptedWatchedMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ReportDay": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "day",
+          "qualifiedViews",
+          "uniqueViewers",
+          "acceptedWatchedMs"
+        ],
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date"
+          },
+          "qualifiedViews": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uniqueViewers": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "acceptedWatchedMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ReportedTitle": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contentId",
+          "kind",
+          "title",
+          "published",
+          "qualifiedViews",
+          "uniqueViewers",
+          "acceptedWatchedMs"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "MOVIE",
+              "SERIES",
+              "SEASON",
+              "EPISODE"
+            ],
+            "description": "Core catalog kind; null when Core does not know the ID"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200,
+            "description": "Title of the published revision, else of the draft; null when unknown"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "qualifiedViews": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uniqueViewers": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "acceptedWatchedMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "StatisticsReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "reason",
+          "from",
+          "to",
+          "updatedAt",
+          "totals",
+          "days",
+          "topContent"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "STALE",
+              "UNAVAILABLE"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "DISABLED",
+              "UNAVAILABLE",
+              "INVALID_RESPONSE",
+              "STALE"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "totals": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReportCounts"
+              }
+            ]
+          },
+          "days": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 31,
+                "items": {
+                  "$ref": "#/components/schemas/ReportDay"
+                }
+              }
+            ]
+          },
+          "topContent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "$ref": "#/components/schemas/ReportedTitle"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "RecommendationList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "reason",
+          "list",
+          "algorithmVersion",
+          "updatedAt",
+          "items"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "ANALYTICS",
+              "FALLBACK"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "DISABLED",
+              "UNAVAILABLE",
+              "INVALID_RESPONSE",
+              "STALE",
+              "NO_VISIBLE_CANDIDATES"
+            ]
+          },
+          "list": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "similar",
+              "popular",
+              "new"
+            ]
+          },
+          "algorithmVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z0-9][a-z0-9.-]{0,31}$"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/RecommendationItem"
+            }
+          }
+        }
+      },
+      "RecommendationItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "reason"
+        ],
+        "properties": {
+          "content": {
+            "$ref": "core-catalog-profiles.v1.json#/components/schemas/PublicContent"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "GENRE_INTEREST",
+              "SIMILAR_GENRES",
+              "POPULAR",
+              "NEWLY_PUBLISHED"
+            ]
           }
         }
       },

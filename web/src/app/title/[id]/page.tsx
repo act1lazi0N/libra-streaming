@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { PlayControl } from "@/components/title/PlayControl";
 import { PlayableBadges } from "@/components/title/PlayableBadges";
+import { RecommendationRow } from "@/components/recommendations/RecommendationRow";
 import { SeasonList } from "@/components/title/SeasonList";
 import { errorClass, secondaryButtonClass } from "@/components/ui";
 import { fetchTitle, formatDuration, isPlayable } from "@/lib/catalog/catalog";
@@ -103,6 +104,11 @@ export default function TitlePage() {
       )}
 
       {content.kind === "SERIES" ? <SeasonList seriesId={content.id} /> : null}
+      {content.kind === "MOVIE" || content.kind === "SERIES" ? (
+        <div className="mt-10">
+          <RecommendationRow list="similar" seed={content.id} />
+        </div>
+      ) : null}
     </main>
   );
 }

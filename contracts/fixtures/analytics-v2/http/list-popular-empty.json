@@ -1,0 +1,7 @@
+{
+  "profileId": "{{profileId}}",
+  "list": "POPULAR",
+  "algorithmVersion": "rules-v1",
+  "updatedAt": "{{updatedAt}}",
+  "items": []
+}

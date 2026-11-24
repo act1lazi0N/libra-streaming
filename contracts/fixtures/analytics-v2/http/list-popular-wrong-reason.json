@@ -1,0 +1,12 @@
+{
+  "profileId": "{{profileId}}",
+  "list": "POPULAR",
+  "algorithmVersion": "rules-v1",
+  "updatedAt": "{{updatedAt}}",
+  "items": [
+    {
+      "contentId": "{{seriesId}}",
+      "reason": "NEWLY_PUBLISHED"
+    }
+  ]
+}

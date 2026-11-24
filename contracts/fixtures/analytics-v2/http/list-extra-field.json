@@ -1,0 +1,21 @@
+{
+  "profileId": "{{profileId}}",
+  "list": "PERSONAL",
+  "algorithmVersion": "rules-v1",
+  "updatedAt": "{{updatedAt}}",
+  "items": [
+    {
+      "contentId": "{{movieId}}",
+      "reason": "GENRE_INTEREST"
+    },
+    {
+      "contentId": "{{seriesId}}",
+      "reason": "POPULAR"
+    },
+    {
+      "contentId": "{{otherId}}",
+      "reason": "NEWLY_PUBLISHED"
+    }
+  ],
+  "extra": true
+}

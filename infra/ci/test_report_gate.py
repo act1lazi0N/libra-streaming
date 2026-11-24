@@ -177,14 +177,14 @@ class ReportGateTest(unittest.TestCase):
             main(["--root", str(self.root)])
         summary = json.loads((self.root / "target/verification/tests.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["suites"], rows)
-        self.assertEqual(summary["tests"], 33)
+        self.assertEqual(summary["tests"], 41)
         self.assertEqual(summary["result"], "TESTS_PASS")
         self.assertNotIn("runId", summary)
         self.assertNotIn("startedAt", summary)
         self.assertEqual(summary["modules"], {
-            "core": {"failsafe": {"suites": 5, "tests": 5}, "surefire": {"suites": 1, "tests": 2}},
+            "core": {"failsafe": {"suites": 7, "tests": 7}, "surefire": {"suites": 1, "tests": 2}},
             "media": {"failsafe": {"suites": 4, "tests": 4}, "surefire": {"suites": 1, "tests": 3}},
-            ANALYTICS: {"failsafe": {"suites": 17, "tests": 17}, "surefire": {"suites": 1, "tests": 2}},
+            ANALYTICS: {"failsafe": {"suites": 23, "tests": 23}, "surefire": {"suites": 1, "tests": 2}},
         })
 
     def test_failure_removes_previous_summary(self):
@@ -232,10 +232,10 @@ class ReportGateTest(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             main(["--root", str(self.root)])
         summary = json.loads((self.root / "target/verification/tests.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(summary["suites"]), 31)
-        self.assertEqual(summary["tests"], 35)
+        self.assertEqual(len(summary["suites"]), 39)
+        self.assertEqual(summary["tests"], 43)
         self.assertEqual(summary["modules"]["core"], {
-            "surefire": {"suites": 2, "tests": 3}, "failsafe": {"suites": 6, "tests": 6}})
+            "surefire": {"suites": 2, "tests": 3}, "failsafe": {"suites": 8, "tests": 8}})
         self.assertEqual({r["lane"] for r in summary["suites"] if r["suite"] == "example.Dynamic"},
                          {"surefire", "failsafe"})
 

@@ -1,0 +1,691 @@
+{
+  "version": 1,
+  "description": "RA04.3 V2 report compatibility corpus. Clock-relative placeholders follow V1; day1..day7 span from..to, dayBefore = from - 1 day, from32 = to - 31 days. coreOutcome declares Core behavior; schemaError pins the sole schema violation. now/updatedAt/staleUpdatedAt/futureUpdatedAt/from/to/tomorrow and content IDs retain the V1 sample values; tests substitute their own clock. from = to - 6 days; updatedAt = now - 60 s; staleUpdatedAt = now - 901 s.",
+  "placeholders": {
+    "accountId": "11111111-1111-4111-8111-111111111111",
+    "profileId": "33333333-3333-4333-8333-333333333333",
+    "now": "2026-09-07T10:15:30Z",
+    "updatedAt": "2026-09-07T10:14:30Z",
+    "staleUpdatedAt": "2026-09-07T09:59:00Z",
+    "futureUpdatedAt": "2026-09-07T10:16:30Z",
+    "from": "2026-09-01",
+    "to": "2026-09-07",
+    "tomorrow": "2026-09-08",
+    "correlationId": "22222222-2222-4222-8222-222222222222",
+    "movieId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "seriesId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "otherId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    "day1": "2026-09-01",
+    "day2": "2026-09-02",
+    "day3": "2026-09-03",
+    "day4": "2026-09-04",
+    "day5": "2026-09-05",
+    "day6": "2026-09-06",
+    "day7": "2026-09-07",
+    "dayBefore": "2026-08-31",
+    "from32": "2026-08-07"
+  },
+  "fixtures": [
+    {
+      "id": "report-query-core",
+      "file": "http/report-query-core.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "valid",
+      "rule": "Exact Core V2 wire request",
+      "coreRequest": "statisticsReport"
+    },
+    {
+      "id": "report-query-extra-field",
+      "file": "http/report-query-extra-field.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "schema-invalid",
+      "rule": "Closed query with required integer topLimit in 1..50",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "report-query-missing-top",
+      "file": "http/report-query-missing-top.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "schema-invalid",
+      "rule": "Closed query with required integer topLimit in 1..50",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/"
+      }
+    },
+    {
+      "id": "report-query-top-zero",
+      "file": "http/report-query-top-zero.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "schema-invalid",
+      "rule": "Closed query with required integer topLimit in 1..50",
+      "schemaError": {
+        "keyword": "minimum",
+        "path": "/topLimit"
+      }
+    },
+    {
+      "id": "report-query-top-51",
+      "file": "http/report-query-top-51.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "schema-invalid",
+      "rule": "Closed query with required integer topLimit in 1..50",
+      "schemaError": {
+        "keyword": "maximum",
+        "path": "/topLimit"
+      }
+    },
+    {
+      "id": "report-query-top-fraction",
+      "file": "http/report-query-top-fraction.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "schema-invalid",
+      "rule": "Closed query with required integer topLimit in 1..50",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/topLimit"
+      }
+    },
+    {
+      "id": "report-query-top-string",
+      "file": "http/report-query-top-string.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "schema-invalid",
+      "rule": "Closed query with required integer topLimit in 1..50",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/topLimit"
+      }
+    },
+    {
+      "id": "report-query-reversed",
+      "file": "http/report-query-reversed.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "semantic-invalid",
+      "rule": "from <= to"
+    },
+    {
+      "id": "report-query-32-days",
+      "file": "http/report-query-32-days.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "semantic-invalid",
+      "rule": "Inclusive window <= 31 days"
+    },
+    {
+      "id": "report-query-future",
+      "file": "http/report-query-future.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReportQuery",
+      "expect": "semantic-invalid",
+      "rule": "to <= today UTC"
+    },
+    {
+      "id": "report-available",
+      "file": "http/report-available.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "valid",
+      "rule": "Fresh consistent report",
+      "coreOutcome": "AVAILABLE"
+    },
+    {
+      "id": "report-zeros",
+      "file": "http/report-zeros.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "valid",
+      "rule": "Confirmed zero report",
+      "coreOutcome": "AVAILABLE"
+    },
+    {
+      "id": "report-watch-only-title",
+      "file": "http/report-watch-only-title.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "valid",
+      "rule": "Watch-only title is included",
+      "coreOutcome": "AVAILABLE"
+    },
+    {
+      "id": "report-stale",
+      "file": "http/report-stale.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "valid",
+      "rule": "Checkpoint older than 15 minutes",
+      "coreOutcome": "STALE"
+    },
+    {
+      "id": "report-extra-field",
+      "file": "http/report-extra-field.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "schema-invalid",
+      "rule": "Report is closed",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "report-day-extra-field",
+      "file": "http/report-day-extra-field.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "schema-invalid",
+      "rule": "Day is closed",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/days/0"
+      }
+    },
+    {
+      "id": "report-negative-day",
+      "file": "http/report-negative-day.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "schema-invalid",
+      "rule": "Counts nonnegative",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "minimum",
+        "path": "/days/0/qualifiedViews"
+      }
+    },
+    {
+      "id": "report-missing-top",
+      "file": "http/report-missing-top.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "schema-invalid",
+      "rule": "topContent required",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/"
+      }
+    },
+    {
+      "id": "report-top-string-count",
+      "file": "http/report-top-string-count.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "schema-invalid",
+      "rule": "Integer counts",
+      "coreOutcome": "INVALID_RESPONSE",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/topContent/0/qualifiedViews"
+      }
+    },
+    {
+      "id": "report-other-window",
+      "file": "http/report-other-window.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Window echoes request",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-future-checkpoint",
+      "file": "http/report-future-checkpoint.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Checkpoint <= now",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-day-missing",
+      "file": "http/report-day-missing.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "One entry per requested date",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-day-order",
+      "file": "http/report-day-order.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Days in requested ascending order",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-day-outside-window",
+      "file": "http/report-day-outside-window.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Day equals requested date",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-views-sum-mismatch",
+      "file": "http/report-views-sum-mismatch.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Day views sum equals totals",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-watched-sum-mismatch",
+      "file": "http/report-watched-sum-mismatch.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Day watched sum equals totals",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-day-unique-over-views",
+      "file": "http/report-day-unique-over-views.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Day viewers <= views",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-unique-below-busiest-day",
+      "file": "http/report-unique-below-busiest-day.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Totals viewers >= busiest day",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-unique-above-day-sum",
+      "file": "http/report-unique-above-day-sum.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Totals viewers <= day sum",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-top-unordered",
+      "file": "http/report-top-unordered.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Top views descending",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-top-tie-order",
+      "file": "http/report-top-tie-order.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Ranking ties use ascending ID text",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-top-duplicate",
+      "file": "http/report-top-duplicate.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Top content IDs must be distinct; ranking and sums remain valid.",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-top-zero-entry",
+      "file": "http/report-top-zero-entry.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Each top entry has a qualified view or accepted watched time.",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-top-unique-over-views",
+      "file": "http/report-top-unique-over-views.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Top viewers <= views",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-top-views-over-totals",
+      "file": "http/report-top-views-over-totals.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Sum top views <= totals",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "report-top-over-limit",
+      "file": "http/report-top-over-limit.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/StatisticsReport",
+      "expect": "semantic-invalid",
+      "rule": "Top size <= requested topLimit 10",
+      "coreOutcome": "INVALID_RESPONSE"
+    },
+    {
+      "id": "list-query-personal",
+      "file": "http/list-query-personal.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "valid",
+      "rule": "Core sends limit 100 and the list-specific seed",
+      "coreRequest": "list-personal"
+    },
+    {
+      "id": "list-query-similar",
+      "file": "http/list-query-similar.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "valid",
+      "rule": "Core sends limit 100 and the list-specific seed",
+      "coreRequest": "list-similar"
+    },
+    {
+      "id": "list-query-popular",
+      "file": "http/list-query-popular.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "valid",
+      "rule": "Core sends limit 100 and the list-specific seed",
+      "coreRequest": "list-popular"
+    },
+    {
+      "id": "list-query-new",
+      "file": "http/list-query-new.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "valid",
+      "rule": "Core sends limit 100 and the list-specific seed",
+      "coreRequest": "list-new"
+    },
+    {
+      "id": "list-query-extra-field",
+      "file": "http/list-query-extra-field.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "schema-invalid",
+      "rule": "Strict closed list query: extra-field",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "list-query-missing-seed",
+      "file": "http/list-query-missing-seed.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "schema-invalid",
+      "rule": "Strict closed list query: missing-seed",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/"
+      }
+    },
+    {
+      "id": "list-query-lowercase",
+      "file": "http/list-query-lowercase.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "schema-invalid",
+      "rule": "Strict closed list query: lowercase",
+      "schemaError": {
+        "keyword": "enum",
+        "path": "/list"
+      }
+    },
+    {
+      "id": "list-query-limit-zero",
+      "file": "http/list-query-limit-zero.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "schema-invalid",
+      "rule": "Strict closed list query: limit-zero",
+      "schemaError": {
+        "keyword": "minimum",
+        "path": "/limit"
+      }
+    },
+    {
+      "id": "list-query-limit-101",
+      "file": "http/list-query-limit-101.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "schema-invalid",
+      "rule": "Strict closed list query: limit-101",
+      "schemaError": {
+        "keyword": "maximum",
+        "path": "/limit"
+      }
+    },
+    {
+      "id": "list-query-limit-fraction",
+      "file": "http/list-query-limit-fraction.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "schema-invalid",
+      "rule": "Strict closed list query: limit-fraction",
+      "schemaError": {
+        "keyword": "type",
+        "path": "/limit"
+      }
+    },
+    {
+      "id": "list-query-seed-not-uuid",
+      "file": "http/list-query-seed-not-uuid.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "schema-invalid",
+      "rule": "Strict closed list query: seed-not-uuid",
+      "schemaError": {
+        "keyword": "format",
+        "path": "/seedContentId"
+      }
+    },
+    {
+      "id": "list-query-similar-null-seed",
+      "file": "http/list-query-similar-null-seed.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "semantic-invalid",
+      "rule": "SIMILAR requires a seed UUID"
+    },
+    {
+      "id": "list-query-personal-with-seed",
+      "file": "http/list-query-personal-with-seed.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationListQuery",
+      "expect": "semantic-invalid",
+      "rule": "PERSONAL forbids a seed"
+    },
+    {
+      "id": "list-personal",
+      "file": "http/list-personal.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "valid",
+      "rule": "personal",
+      "coreOutcome": "ANALYTICS",
+      "coreList": "personal"
+    },
+    {
+      "id": "list-popular-empty",
+      "file": "http/list-popular-empty.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "valid",
+      "rule": "Honest empty popularity result",
+      "coreOutcome": "ANALYTICS",
+      "coreList": "popular"
+    },
+    {
+      "id": "list-similar",
+      "file": "http/list-similar.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "valid",
+      "rule": "Seed excluded and similarity reason",
+      "coreOutcome": "ANALYTICS",
+      "coreList": "similar"
+    },
+    {
+      "id": "list-stale",
+      "file": "http/list-stale.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "valid",
+      "rule": "Checkpoint older than 15 minutes",
+      "coreOutcome": "STALE",
+      "coreList": "personal"
+    },
+    {
+      "id": "list-extra-field",
+      "file": "http/list-extra-field.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "schema-invalid",
+      "rule": "Strict closed response: extra-field",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal",
+      "schemaError": {
+        "keyword": "additionalProperties",
+        "path": "/"
+      }
+    },
+    {
+      "id": "list-unknown-reason",
+      "file": "http/list-unknown-reason.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "schema-invalid",
+      "rule": "Strict closed response: unknown-reason",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal",
+      "schemaError": {
+        "keyword": "enum",
+        "path": "/items/0/reason"
+      }
+    },
+    {
+      "id": "list-missing-algorithm",
+      "file": "http/list-missing-algorithm.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "schema-invalid",
+      "rule": "Strict closed response: missing-algorithm",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal",
+      "schemaError": {
+        "keyword": "required",
+        "path": "/"
+      }
+    },
+    {
+      "id": "list-uppercase-algorithm",
+      "file": "http/list-uppercase-algorithm.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "schema-invalid",
+      "rule": "Strict closed response: uppercase-algorithm",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal",
+      "schemaError": {
+        "keyword": "pattern",
+        "path": "/algorithmVersion"
+      }
+    },
+    {
+      "id": "list-other-profile",
+      "file": "http/list-other-profile.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "semantic-invalid",
+      "rule": "other-profile",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal"
+    },
+    {
+      "id": "list-other-list",
+      "file": "http/list-other-list.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "semantic-invalid",
+      "rule": "other-list",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal"
+    },
+    {
+      "id": "list-future",
+      "file": "http/list-future.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "semantic-invalid",
+      "rule": "future",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal"
+    },
+    {
+      "id": "list-duplicate",
+      "file": "http/list-duplicate.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "semantic-invalid",
+      "rule": "duplicate",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal"
+    },
+    {
+      "id": "list-popular-wrong-reason",
+      "file": "http/list-popular-wrong-reason.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "semantic-invalid",
+      "rule": "popular-wrong-reason",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "popular"
+    },
+    {
+      "id": "list-similar-includes-seed",
+      "file": "http/list-similar-includes-seed.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "semantic-invalid",
+      "rule": "similar-includes-seed",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "similar"
+    },
+    {
+      "id": "list-personal-tier-order",
+      "file": "http/list-personal-tier-order.json",
+      "contract": "http/analytics-internal.v2.json",
+      "pointer": "#/components/schemas/RecommendationList",
+      "expect": "semantic-invalid",
+      "rule": "personal-tier-order",
+      "coreOutcome": "INVALID_RESPONSE",
+      "coreList": "personal"
+    }
+  ]
+}

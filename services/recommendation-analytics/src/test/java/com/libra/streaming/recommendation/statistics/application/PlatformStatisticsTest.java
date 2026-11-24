@@ -3,6 +3,7 @@ package com.libra.streaming.recommendation.statistics.application;
 import com.libra.streaming.recommendation.freshness.application.CheckpointStore;
 import com.libra.streaming.recommendation.freshness.application.ProjectionFreshness;
 import com.libra.streaming.recommendation.freshness.domain.InputTopic;
+import com.libra.streaming.recommendation.statistics.domain.ContentTotals;
 import com.libra.streaming.recommendation.statistics.domain.DayContribution;
 import com.libra.streaming.recommendation.statistics.domain.DayTotals;
 import com.libra.streaming.recommendation.statistics.domain.StatisticsTotals;
@@ -127,6 +128,11 @@ class PlatformStatisticsTest {
         @Override
         public List<DayTotals> days(StatisticsWindow window) {
             throw new AssertionError("These operations must not read daily totals");
+        }
+
+        @Override
+        public List<ContentTotals> topContent(StatisticsWindow window, int limit) {
+            throw new AssertionError("These operations must not read top content");
         }
     }
 }

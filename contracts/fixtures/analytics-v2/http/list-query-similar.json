@@ -1,0 +1,7 @@
+{
+  "accountId": "{{accountId}}",
+  "profileId": "{{profileId}}",
+  "list": "SIMILAR",
+  "seedContentId": "{{movieId}}",
+  "limit": 100
+}

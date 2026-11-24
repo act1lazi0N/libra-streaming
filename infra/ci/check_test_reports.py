@@ -14,6 +14,8 @@ REQUIRED_CORE_SUITES = (
     "com.libra.streaming.core.integration.security.InternalServiceSecurityIntegrationTest",
     "com.libra.streaming.core.integration.analytics.AnalyticsEventContractIntegrationTest",
     "com.libra.streaming.core.integration.analytics.AnalyticsReadIntegrationTest",
+    "com.libra.streaming.core.integration.analytics.AnalyticsReportIntegrationTest",
+    "com.libra.streaming.core.integration.analytics.AnalyticsRecommendationListIntegrationTest",
 )
 REQUIRED_MEDIA_SUITES = (
     "com.libra.streaming.media.processing.infrastructure.FfprobeFixtureIntegrationTest",
@@ -41,6 +43,12 @@ REQUIRED_ANALYTICS_SUITES = (
     "com.libra.streaming.recommendation.preferences.infrastructure.PreferenceRollupIntegrationTest",
     "com.libra.streaming.recommendation.recommendations.infrastructure.CandidateRankingIntegrationTest",
     "com.libra.streaming.recommendation.internalapi.infrastructure.RecommendationsApiIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.StatisticsReportApiIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.StatisticsReportHttpCompatibilityIntegrationTest",
+    "com.libra.streaming.recommendation.convergence.StatisticsReferenceIntegrationTest",
+    "com.libra.streaming.recommendation.statistics.infrastructure.StatisticsSnapshotReadsIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.RecommendationListApiIntegrationTest",
+    "com.libra.streaming.recommendation.internalapi.infrastructure.RecommendationListLoadIntegrationTest",
 )
 REQUIRED_SUITES = {"core": REQUIRED_CORE_SUITES, "media": REQUIRED_MEDIA_SUITES, "recommendation-analytics": REQUIRED_ANALYTICS_SUITES}
 # Every backend module must bring integration evidence; a module that is absent or has none fails the gate.

@@ -28,7 +28,8 @@ final class StatisticsRequests {
         return new Query(date(root.get("from")), date(root.get("to")));
     }
 
-    private static LocalDate date(JsonNode node) {
+    /** An RFC 3339 full-date string; shared with the V2 report query. */
+    static LocalDate date(JsonNode node) {
         if (node == null || !node.isString() || !DATE_TEXT.matcher(node.stringValue()).matches()) {
             throw QueryBodies.invalid();
         }

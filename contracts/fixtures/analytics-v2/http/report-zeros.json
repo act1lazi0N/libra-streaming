@@ -1,0 +1,55 @@
+{
+  "from": "{{from}}",
+  "to": "{{to}}",
+  "updatedAt": "{{updatedAt}}",
+  "totals": {
+    "qualifiedViews": 0,
+    "uniqueViewers": 0,
+    "acceptedWatchedMs": 0
+  },
+  "days": [
+    {
+      "day": "{{day1}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day2}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day3}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day4}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day5}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day6}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    },
+    {
+      "day": "{{day7}}",
+      "qualifiedViews": 0,
+      "uniqueViewers": 0,
+      "acceptedWatchedMs": 0
+    }
+  ],
+  "topContent": []
+}

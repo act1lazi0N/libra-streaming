@@ -1,0 +1,7 @@
+{
+  "accountId": "{{accountId}}",
+  "profileId": "{{profileId}}",
+  "list": "PERSONAL",
+  "seedContentId": null,
+  "limit": 100
+}

@@ -29,14 +29,14 @@ final class RecommendationRequests {
         return new Query(uuid(root.get("accountId")), uuid(root.get("profileId")), limit(root.get("limit")));
     }
 
-    private static UUID uuid(JsonNode node) {
+    static UUID uuid(JsonNode node) {
         if (node == null || !node.isString() || !UUID_TEXT.matcher(node.stringValue()).matches()) {
             throw QueryBodies.invalid();
         }
         return UUID.fromString(node.stringValue());
     }
 
-    private static int limit(JsonNode node) {
+    static int limit(JsonNode node) {
         // isInt: an integral JSON number token within int range; floats and exponent forms are not integral tokens.
         if (node == null || !node.isInt() || node.intValue() < 1 || node.intValue() > 100) {
             throw QueryBodies.invalid();

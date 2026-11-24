@@ -1,0 +1,570 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LIBRA Analytics internal read contract, version 2",
+    "version": "2.0.0",
+    "description": "RA04.3. Adds the daily and top-content statistics report; analytics-internal.v1 is unchanged and still served. Authentication, scope (exactly statistics:read), headers, body limit, media types, problem bodies and the 503 rules are those of analytics-internal.v1. The window rules are V1's: inclusive UTC dates, from <= to, at most 31 days, to not after today UTC. topLimit is an integer 1..50. totals have V1's meaning. days holds exactly one entry per date of the window in ascending order, zeros included; a day's uniqueViewers counts that day alone. topContent ranks titles (movie or series; an episode counts for its series once Analytics knows its placement, otherwise its own ID is used): qualifiedViews = sessions of the title that qualified in the window, uniqueViewers = distinct accounts among them, acceptedWatchedMs = accepted increments of the title by accepted-event UTC date; only titles with a view or watched time; order qualifiedViews desc, uniqueViewers desc, acceptedWatchedMs desc, contentId as lowercase text asc; at most topLimit entries. updatedAt, totals, days and topContent come from one consistent read: sum(days.qualifiedViews) = totals.qualifiedViews and sum(days.acceptedWatchedMs) = totals.acceptedWatchedMs. No account, profile or session identifier is ever returned. Unknown fields are rejected in both directions. Normative text and consumer checks: docs/analytics-statistics-report-ra04-3.md. Executable fixtures: contracts/fixtures/analytics-v2/manifest.json. RA05.3 adds POST /internal/v2/recommendations/query (exactly recommendations:read): one of four lists for a profile, each item with the rule that placed it as its reason, and the algorithm version. PERSONAL is the RA05.2 ranking (GENRE_INTEREST, then POPULAR, then NEWLY_PUBLISHED); SIMILAR holds only titles sharing genres with seedContentId (SIMILAR_GENRES), POPULAR only titles watched in the last 7 days (POPULAR), NEW every title newest first (NEWLY_PUBLISHED); no list is filled with titles another rule chose. Every list leaves out titles the profile completed and the SIMILAR seed itself. seedContentId is a UUID for SIMILAR and null otherwise. Core rechecks visibility and availability and never grants playback from a recommendation."
+  },
+  "servers": [
+    {
+      "url": "https://analytics.example.test"
+    }
+  ],
+  "security": [
+    {
+      "serviceJwt": []
+    }
+  ],
+  "paths": {
+    "/internal/v2/statistics/query": {
+      "post": {
+        "operationId": "queryStatisticsReport",
+        "summary": "Read-only internal query; requires exactly statistics:read",
+        "x-required-scope": "statistics:read",
+        "parameters": [
+          {
+            "name": "X-Correlation-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatisticsReportQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Complete uncompressed JSON snapshot; maximum 65,536 bytes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatisticsReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "405": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "x-error-codes": {
+          "400": [
+            "INVALID_REQUEST"
+          ],
+          "401": [
+            "AUTHENTICATION_REQUIRED"
+          ],
+          "403": [
+            "ACCESS_DENIED"
+          ],
+          "404": [
+            "NOT_FOUND"
+          ],
+          "405": [
+            "METHOD_NOT_ALLOWED"
+          ],
+          "413": [
+            "PAYLOAD_TOO_LARGE"
+          ],
+          "415": [
+            "UNSUPPORTED_MEDIA_TYPE"
+          ],
+          "429": [
+            "RATE_LIMITED"
+          ],
+          "500": [
+            "INTERNAL_ERROR"
+          ],
+          "503": [
+            "ANALYTICS_NOT_READY",
+            "ANALYTICS_UNAVAILABLE"
+          ]
+        }
+      }
+    },
+    "/internal/v2/recommendations/query": {
+      "post": {
+        "operationId": "queryRecommendationList",
+        "summary": "Read-only internal query; requires exactly recommendations:read",
+        "x-required-scope": "recommendations:read",
+        "parameters": [
+          {
+            "name": "X-Correlation-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationListQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Complete uncompressed JSON snapshot; maximum 65,536 bytes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "405": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "x-error-codes": {
+          "400": [
+            "INVALID_REQUEST"
+          ],
+          "401": [
+            "AUTHENTICATION_REQUIRED"
+          ],
+          "403": [
+            "ACCESS_DENIED"
+          ],
+          "404": [
+            "NOT_FOUND"
+          ],
+          "405": [
+            "METHOD_NOT_ALLOWED"
+          ],
+          "413": [
+            "PAYLOAD_TOO_LARGE"
+          ],
+          "415": [
+            "UNSUPPORTED_MEDIA_TYPE"
+          ],
+          "429": [
+            "RATE_LIMITED"
+          ],
+          "500": [
+            "INTERNAL_ERROR"
+          ],
+          "503": [
+            "ANALYTICS_NOT_READY",
+            "ANALYTICS_UNAVAILABLE"
+          ]
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "serviceJwt": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Pin a trusted dedicated RSA public key/kid (>=2048 bits), RS256 only. Require iss=libra-core-services, sub=libra-core, aud=[libra-recommendation-analytics], purpose=service-access, nonempty jti, iat <= now < exp, and 0 < exp-iat <= 60 seconds. Enforce exact endpoint scope string. Browser access JWTs/playback tickets/forwarded user headers are not service credentials. No arbitrary token-supplied key URL. No one-time replay guarantee."
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Sanitized Problem Details, sent as application/problem+json whatever the request Accept header says. Core discards the body and degrades to UNAVAILABLE/FALLBACK. 400 INVALID_REQUEST (schema or semantic request violation, including a window over 31 days or past today UTC); 401 AUTHENTICATION_REQUIRED (missing/invalid service JWT); 403 ACCESS_DENIED (wrong scope); 404 NOT_FOUND; 405 METHOD_NOT_ALLOWED; 413 PAYLOAD_TOO_LARGE; 415 UNSUPPORTED_MEDIA_TYPE; 429 RATE_LIMITED; 500 INTERNAL_ERROR; 503 ANALYTICS_NOT_READY (no confirmed checkpoint yet) or ANALYTICS_UNAVAILABLE (dependency failure). Never contains tokens, SQL, stack traces, raw event payloads or account/profile identifiers.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "StatisticsReportQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "topLimit"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "topLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      },
+      "StatisticsReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "updatedAt",
+          "totals",
+          "days",
+          "topContent"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/Totals"
+          },
+          "days": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 31,
+            "items": {
+              "$ref": "#/components/schemas/DayTotals"
+            }
+          },
+          "topContent": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/ContentTotals"
+            }
+          }
+        }
+      },
+      "Totals": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "qualifiedViews",
+          "uniqueViewers",
+          "acceptedWatchedMs"
+        ],
+        "properties": {
+          "qualifiedViews": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uniqueViewers": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "acceptedWatchedMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "DayTotals": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "day",
+          "qualifiedViews",
+          "uniqueViewers",
+          "acceptedWatchedMs"
+        ],
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date"
+          },
+          "qualifiedViews": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uniqueViewers": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "acceptedWatchedMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ContentTotals": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contentId",
+          "qualifiedViews",
+          "uniqueViewers",
+          "acceptedWatchedMs"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "qualifiedViews": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uniqueViewers": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "acceptedWatchedMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "RecommendationListQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "profileId",
+          "list",
+          "seedContentId",
+          "limit"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "list": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "SIMILAR",
+              "POPULAR",
+              "NEW"
+            ]
+          },
+          "seedContentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Required UUID for SIMILAR; null for every other list"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "RecommendationList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "list",
+          "algorithmVersion",
+          "updatedAt",
+          "items"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "list": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "SIMILAR",
+              "POPULAR",
+              "NEW"
+            ]
+          },
+          "algorithmVersion": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9.-]{0,31}$"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/RecommendedTitle"
+            }
+          }
+        }
+      },
+      "RecommendedTitle": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contentId",
+          "reason"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "GENRE_INTEREST",
+              "SIMILAR_GENRES",
+              "POPULAR",
+              "NEWLY_PUBLISHED"
+            ]
+          }
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "code",
+          "correlationId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "about:blank"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "INVALID_REQUEST",
+              "AUTHENTICATION_REQUIRED",
+              "ACCESS_DENIED",
+              "NOT_FOUND",
+              "METHOD_NOT_ALLOWED",
+              "PAYLOAD_TOO_LARGE",
+              "UNSUPPORTED_MEDIA_TYPE",
+              "RATE_LIMITED",
+              "INTERNAL_ERROR",
+              "ANALYTICS_NOT_READY",
+              "ANALYTICS_UNAVAILABLE"
+            ]
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  }
+}

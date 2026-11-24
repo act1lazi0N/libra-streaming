@@ -1,0 +1,12 @@
+{
+  "profileId": "{{profileId}}",
+  "list": "NEW",
+  "algorithmVersion": "rules-v1",
+  "updatedAt": "{{updatedAt}}",
+  "items": [
+    {
+      "contentId": "{{otherId}}",
+      "reason": "NEWLY_PUBLISHED"
+    }
+  ]
+}

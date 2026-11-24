@@ -204,7 +204,7 @@ class CoreServiceSecurityIntegrationTest extends InternalApiFixture {
     void unknownOperationsAndMethodsAnswerOnlyToAnAuthenticatedService() throws Exception {
         String token = bearer(ServiceTokens.token(STATISTICS_SCOPE));
         for (String path : List.of("/internal", "/internal/v1/statistics", "/internal/v1/statistics/query/extra",
-                "/internal/v2/statistics/query", "/internal/v1/events")) {
+                "/internal/v3/statistics/query", "/internal/v2/statistics", "/internal/v1/events")) {
             mvc.perform(post(path)).andExpect(status().isUnauthorized());
             mvc.perform(post(path).header("Authorization", token)).andExpect(status().isNotFound())
                     .andExpect(content().contentType("application/problem+json"))
@@ -247,7 +247,7 @@ class CoreServiceSecurityIntegrationTest extends InternalApiFixture {
                 checked++;
             }
         }
-        assertThat(checked).isEqualTo(2);
+        assertThat(checked).isEqualTo(4); // V1/V2 statistics and V1/V2 recommendations
     }
 
     private static String hmac(JWTClaimsSet claims, byte[] secret) throws Exception {

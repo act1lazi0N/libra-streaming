@@ -1,0 +1,12 @@
+{
+  "profileId": "{{profileId}}",
+  "list": "SIMILAR",
+  "algorithmVersion": "rules-v1",
+  "updatedAt": "{{updatedAt}}",
+  "items": [
+    {
+      "contentId": "{{seriesId}}",
+      "reason": "SIMILAR_GENRES"
+    }
+  ]
+}

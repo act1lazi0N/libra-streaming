@@ -74,7 +74,7 @@ class AnalyticsEventContractIntegrationTest {
 
     @BeforeEach void setup() {
         clock.reset();
-        fixtures = AnalyticsContractFixtures.load(mapper);
+        fixtures = AnalyticsContractFixtures.load(mapper, "analytics-v1");
         viewer = actor("USER"); admin = actor("ADMIN");
     }
 

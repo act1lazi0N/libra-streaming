@@ -74,9 +74,11 @@ public class CoreServiceSecurity {
                         .accessDeniedHandler((request, response, exception) ->
                                 problems.write(Problems.Code.ACCESS_DENIED, request, response)))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(HttpMethod.POST, "/internal/v1/recommendations/query")
+                        .requestMatchers(HttpMethod.POST, "/internal/v1/recommendations/query",
+                                "/internal/v2/recommendations/query")
                             .hasAuthority("SCOPE_" + RECOMMENDATIONS)
-                        .requestMatchers(HttpMethod.POST, "/internal/v1/statistics/query")
+                        .requestMatchers(HttpMethod.POST, "/internal/v1/statistics/query",
+                                "/internal/v2/statistics/query")
                             .hasAuthority("SCOPE_" + STATISTICS)
                         // Unknown operations and methods answer 404/405, but only to an authenticated service.
                         .anyRequest().authenticated())

@@ -39,6 +39,13 @@ public class AnalyticsClient {
     public Result<StatisticsResponse> statistics(StatisticsQuery query, UUID correlationId) {
         return post("/internal/v1/statistics/query", Scope.STATISTICS, query, StatisticsResponse.class, correlationId);
     }
+    public Result<StatisticsReportResponse> statisticsReport(StatisticsReportQuery query, UUID correlationId) {
+        return post("/internal/v2/statistics/query", Scope.STATISTICS, query, StatisticsReportResponse.class, correlationId);
+    }
+    public Result<RecommendationListResponse> recommendationList(RecommendationListQuery query, UUID correlationId) {
+        return post("/internal/v2/recommendations/query", Scope.RECOMMENDATIONS, query, RecommendationListResponse.class,
+                correlationId);
+    }
     private <T> Result<T> post(String path, Scope scope, Object query, Class<T> type, UUID correlationId) {
         if (!properties.enabled()) { return Result.failed(Failure.DISABLED); }
         if (!inFlight.tryAcquire()) { return Result.failed(Failure.UNAVAILABLE); }

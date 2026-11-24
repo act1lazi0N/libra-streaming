@@ -12,7 +12,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * The shared Core-Analytics V1 corpus in {@code contracts/fixtures/analytics-v1}. The Python contract gate proves each
+ * The shared Core-Analytics corpora under {@code contracts/fixtures/}. The Python contract gate proves each
  * template's schema expectation; Core tests prove that Core's real wire output equals the templates and that Core's
  * adapter reaches the declared outcome for every downstream body.
  */
@@ -41,13 +41,13 @@ final class AnalyticsContractFixtures {
 
     private AnalyticsContractFixtures() {}
 
-    static List<Fixture> load(ObjectMapper mapper) {
+    static List<Fixture> load(ObjectMapper mapper, String corpus) {
         Path directory = null;
         for (var current = Path.of("").toAbsolutePath(); current != null && directory == null; current = current.getParent()) {
-            var candidate = current.resolve("contracts/fixtures/analytics-v1");
+            var candidate = current.resolve("contracts/fixtures/" + corpus);
             if (Files.isRegularFile(candidate.resolve("manifest.json"))) { directory = candidate; }
         }
-        if (directory == null) { throw new IllegalStateException("contracts/fixtures/analytics-v1 not found"); }
+        if (directory == null) { throw new IllegalStateException("contracts/fixtures/" + corpus + " not found"); }
         try {
             var fixtures = new ArrayList<Fixture>();
             for (var entry : mapper.readTree(Files.readString(directory.resolve("manifest.json"))).path("fixtures")) {
